@@ -975,22 +975,36 @@ def crack_password(hc22000_file, essid):
 
             spd = data.get('speed', {})
             if spd:
-                for dev_id, rate_info in spd.items():
+                # Hashcat may report speed as a dict or list of device entries.
+                speed_items = []
+                if isinstance(spd, dict):
+                    speed_items = spd.items()
+                elif isinstance(spd, list):
+                    speed_items = enumerate(spd)
+                else:
+                    speed_items = []
+
+                for dev_id, rate_info in speed_items:
                     if isinstance(rate_info, dict):
                         rate = rate_info.get('rate', 0)
-                        if rate >= 1_000_000_000:
-                            state['speed'] = f"{rate/1_000_000_000:.1f} GH/s"
-                            state['speed_val'] = rate
-                        elif rate >= 1_000_000:
-                            state['speed'] = f"{rate/1_000_000:.1f} MH/s"
-                            state['speed_val'] = rate
-                        elif rate >= 1_000:
-                            state['speed'] = f"{rate/1_000:.1f} kH/s"
-                            state['speed_val'] = rate
-                        else:
-                            state['speed'] = f"{rate} H/s"
-                            state['speed_val'] = rate
-                        break
+                    elif isinstance(rate_info, (int, float)):
+                        rate = rate_info
+                    else:
+                        continue
+
+                    if rate >= 1_000_000_000:
+                        state['speed'] = f"{rate/1_000_000_000:.1f} GH/s"
+                        state['speed_val'] = rate
+                    elif rate >= 1_000_000:
+                        state['speed'] = f"{rate/1_000_000:.1f} MH/s"
+                        state['speed_val'] = rate
+                    elif rate >= 1_000:
+                        state['speed'] = f"{rate/1_000:.1f} kH/s"
+                        state['speed_val'] = rate
+                    else:
+                        state['speed'] = f"{rate} H/s"
+                        state['speed_val'] = rate
+                    break
 
             est_stop = data.get('estimated_stop', 0)
             if est_stop:
