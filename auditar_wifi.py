@@ -875,17 +875,18 @@ def crack_password(hc22000_file, essid):
 
     def draw_progress():
         while not state['done']:
-            # Determine terminal width and dynamic bar size
             try:
                 cols = shutil.get_terminal_size((80, 20)).columns
             except Exception:
                 cols = 80
 
-            # Reserve space for fixed text: percent, speed, ETA, T, status
-            reserved = 40
-            bar_width = max(10, cols - reserved)
-
             pct = max(0.0, min(100.0, state.get('pct', 0.0)))
+            if cols < 80:
+                bar_width = 16
+            elif cols < 100:
+                bar_width = 20
+            else:
+                bar_width = 24
             filled = int(bar_width * pct / 100.0)
             bar = '\u2588' * filled + '\u2591' * (bar_width - filled)
 
@@ -903,17 +904,16 @@ def crack_password(hc22000_file, essid):
             if remaining_secs is not None and remaining_secs >= 0:
                 eta_s = _fmt_time(remaining_secs)
             else:
-                # fallback to reported eta or placeholder
                 eta_s = state['eta'] if state['eta'] else '--:--:--'
 
-            speed_str = state.get('speed', '---')
-            status = state.get('status', '')
+            speed_str = state.get('speed', '---')[:5]
+            status = state.get('status', '')[:8]
 
             line = (f"\r  {Colors.CYAN}[{bar}]{Colors.ENDC} {Colors.BOLD}{pct:6.2f}%{Colors.ENDC} "
-                    f"{Colors.GREEN}{speed_str:9}{Colors.ENDC} "
-                    f"{Colors.WARNING}ETA:{Colors.ENDC}{eta_s:10} "
-                    f"{Colors.CYAN}T:{Colors.ENDC}{elapsed_s:8} [{status}]")
-            print(line + ' ' * 5, end='', flush=True)
+                    f"{Colors.GREEN}{speed_str:5}{Colors.ENDC} "
+                    f"{Colors.WARNING}ETA:{Colors.ENDC}{eta_s:7} "
+                    f"{Colors.CYAN}T:{Colors.ENDC}{elapsed_s:7} [{status}]")
+            print(line + '\033[0K', end='', flush=True)
             time.sleep(0.5)
 
     cmd = [

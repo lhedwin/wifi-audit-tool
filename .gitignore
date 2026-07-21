@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Hashcat / cap files
+*.cap
+*.hc22000
+*.csv
+*.netxml
+*.log
+
+# Aircrack / scan files
+*.kismet.csv
+*.log.csv
+
+# VS Code / Blackbox
+.vscode/
+.blackboxcli/
+
+# Password output
+passwords_encontradas.txt
+
+# Misc
+*~
+.DS_Store
