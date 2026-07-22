@@ -815,12 +815,27 @@ def convert_to_hc22000(cap_file):
 
 # =============================================================================
 
+def parse_duration_to_seconds(time_str):
+    """Convierte cadenas como '6 mins', '1 hour, 20 mins' o '45 secs' de Hashcat a segundos."""
+    total_secs = 0
+    time_str = time_str.lower()
+
+    hours = re.search(r'(\d+)\s*hour', time_str)
+    mins = re.search(r'(\d+)\s*min', time_str)
+    secs = re.search(r'(\d+)\s*sec', time_str)
+
+    if hours: total_secs += int(hours.group(1)) * 3600
+    if mins: total_secs += int(mins.group(1)) * 60
+    if secs: total_secs += int(secs.group(1))
+
+    return total_secs
+
+
 # =============================================================================
 # PASO 7: CRACKEAR CON HASHCAT
 # =============================================================================
 
 def crack_password(hc22000_file, essid):
-    import json
     import threading
 
     cprint("\n" + "=" * 60, Colors.HEADER)
@@ -854,21 +869,19 @@ def crack_password(hc22000_file, essid):
         cprint(f"  [*] GPU detectada: NVIDIA (Device ID #{device_id})", Colors.GREEN)
         device_args = ["-d", device_id]
 
-    # --- Estado compartido entre hilos ---
+    state_lock = threading.Lock()
     state = {
-        'pct': 0.0,
-        'hashes_cur': 0,
-        'hashes_end': 100_000_000,
-        'speed': '',
-        'speed_val': 0,
-        'eta': '',
-        'status': 'Iniciando...',
         'done': False,
         'start_time': time.time(),
-        'log_lines': [],
+        'status': 'Iniciando',
+        'hashcat_eta_secs': 0,
+        'saw_eta': False,
+        'result_lines': [],
     }
 
     def _fmt_time(secs):
+        if secs is None or secs < 0 or secs == float('inf'):
+            return '--:--:--'
         secs = int(secs)
         h, m, s = secs // 3600, (secs % 3600) // 60, secs % 60
         return f"{h}h:{m:02d}m:{s:02d}s" if h else f"{m:02d}m:{s:02d}s"
@@ -880,7 +893,21 @@ def crack_password(hc22000_file, essid):
             except Exception:
                 cols = 80
 
-            pct = max(0.0, min(100.0, state.get('pct', 0.0)))
+            with state_lock:
+                elapsed_total = time.time() - state['start_time']
+                eta_base = state['hashcat_eta_secs']
+                saw_eta = state['saw_eta']
+                status = state['status'][:10]
+
+            if saw_eta and eta_base > 0:
+                pct = (elapsed_total / eta_base) * 100.0
+                pct = min(99.5, max(pct, 0.0))
+                remaining_secs = max(0, eta_base - elapsed_total)
+                eta_s = _fmt_time(remaining_secs)
+            else:
+                pct = 0.0
+                eta_s = "Calculando..."
+
             if cols < 80:
                 bar_width = 16
             elif cols < 100:
@@ -890,39 +917,26 @@ def crack_password(hc22000_file, essid):
             filled = int(bar_width * pct / 100.0)
             bar = '\u2588' * filled + '\u2591' * (bar_width - filled)
 
-            elapsed = time.time() - state['start_time']
-            elapsed_s = _fmt_time(elapsed)
-
-            # Prefer speed-based ETA when possible
-            speed_val = state.get('speed_val', 0) or 0
-            cur = state.get('hashes_cur', 0)
-            end = state.get('hashes_end', 100_000_000)
-            remaining_secs = None
-            if speed_val and end and cur < end:
-                remaining_secs = (end - cur) / float(speed_val)
-
-            if remaining_secs is not None and remaining_secs >= 0:
-                eta_s = _fmt_time(remaining_secs)
-            else:
-                eta_s = state['eta'] if state['eta'] else '--:--:--'
-
-            speed_str = state.get('speed', '---')[:5]
-            status = state.get('status', '')[:8]
+            elapsed_s = _fmt_time(elapsed_total)
 
             line = (f"\r  {Colors.CYAN}[{bar}]{Colors.ENDC} {Colors.BOLD}{pct:6.2f}%{Colors.ENDC} "
-                    f"{Colors.GREEN}{speed_str:5}{Colors.ENDC} "
-                    f"{Colors.WARNING}ETA:{Colors.ENDC}{eta_s:7} "
+                    f"{Colors.WARNING}ETA:{Colors.ENDC}{eta_s:10} "
                     f"{Colors.CYAN}T:{Colors.ENDC}{elapsed_s:7} [{status}]")
             print(line + '\033[0K', end='', flush=True)
-            time.sleep(0.5)
+            time.sleep(0.1)
+
+    # Archivo de salida para recuperar la password
+    hc_path = Path(hc22000_file)
+    outfile = hc_path.parent / f"{hc_path.stem}_result.txt"
 
     cmd = [
         "hashcat", "-m", "22000", "-a", "3",
         hc22000_file,
         "?d?d?d?d?d?d?d?d",
         "-w", "3",
+        "--outfile", str(outfile),
         "--outfile-format=2",
-        "--status-json",
+        "--status",
         "--status-timer=1",
     ] + device_args
 
@@ -942,125 +956,76 @@ def crack_password(hc22000_file, essid):
     progress_thread = threading.Thread(target=draw_progress, daemon=True)
     progress_thread.start()
 
-    for line in proc.stdout:
-        line = line.rstrip()
+    for raw_line in proc.stdout:
+        line = raw_line.strip()
         if not line:
             continue
 
-        if line.startswith('{'):
-            try:
-                data = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+        with state_lock:
+            state['result_lines'].append(line)
 
-            prog = data.get('progress', {})
-            if prog:
-                cur = prog.get('cur', 0)
-                end = prog.get('end', 100_000_000)
-                # `percent` may be reported as 0..1 or 0..100 depending on source.
-                raw_pct = prog.get('percent', 0.0)
-                try:
-                    raw_pct = float(raw_pct)
-                except Exception:
-                    raw_pct = 0.0
-                if raw_pct <= 1.0:
-                    pct = raw_pct * 100.0
-                else:
-                    pct = raw_pct
-                # Clamp to [0,100]
-                pct = max(0.0, min(100.0, pct))
-                state['hashes_cur'] = cur
-                state['hashes_end'] = end if end else 100_000_000
-                state['pct'] = pct
+        # Extraer ETA de la linea de texto de hashcat
+        if not state.get('saw_eta', False):
+            if 'Time.Estimated' in line or 'Estimated' in line:
+                match = re.search(r'\((.*?)\)', line)
+                if match:
+                    duration_str = match.group(1)
+                    seconds = parse_duration_to_seconds(duration_str)
+                    if seconds > 0:
+                        with state_lock:
+                            state['hashcat_eta_secs'] = seconds
+                            state['saw_eta'] = True
+                            state['status'] = 'Ejecutando'
+                            state['start_time'] = time.time()
 
-            spd = data.get('speed', {})
-            if spd:
-                # Hashcat may report speed as a dict or list of device entries.
-                speed_items = []
-                if isinstance(spd, dict):
-                    speed_items = spd.items()
-                elif isinstance(spd, list):
-                    speed_items = enumerate(spd)
-                else:
-                    speed_items = []
-
-                for dev_id, rate_info in speed_items:
-                    if isinstance(rate_info, dict):
-                        rate = rate_info.get('rate', 0)
-                    elif isinstance(rate_info, (int, float)):
-                        rate = rate_info
-                    else:
-                        continue
-
-                    if rate >= 1_000_000_000:
-                        state['speed'] = f"{rate/1_000_000_000:.1f} GH/s"
-                        state['speed_val'] = rate
-                    elif rate >= 1_000_000:
-                        state['speed'] = f"{rate/1_000_000:.1f} MH/s"
-                        state['speed_val'] = rate
-                    elif rate >= 1_000:
-                        state['speed'] = f"{rate/1_000:.1f} kH/s"
-                        state['speed_val'] = rate
-                    else:
-                        state['speed'] = f"{rate} H/s"
-                        state['speed_val'] = rate
-                    break
-
-            est_stop = data.get('estimated_stop', 0)
-            if est_stop:
-                remaining = est_stop - time.time()
-                if remaining > 0:
-                    state['eta'] = _fmt_time(remaining)
-
-            st_map = {0: 'Ejecutando', 1: 'Exhausted', 2: 'Cracked!', 3: 'Aborted', 4: 'Quit', 5: 'Bypass'}
-            sc = data.get('status', 0)
-            state['status'] = st_map.get(sc, f'Codigo {sc}')
-
-        else:
-            if any(kw in line for kw in ('Session', 'Hash.Target', 'Started')):
-                clean = re.sub(r'\s+', ' ', line).strip()
-                if clean:
-                    # While draw_progress is running, avoid printing extra lines
-                    # that would break the cursor positioning. Accumulate logs
-                    # and print them once the progress thread finishes.
-                    if not state.get('done', False):
-                        state['log_lines'].append(clean)
-                    else:
-                        cprint(f"  {clean}", Colors.BLUE)
+        if 'Bypass' in line:
+            with state_lock:
+                state['status'] = 'Bypass'
 
     proc.wait()
     rc = proc.returncode
 
-    state['done'] = True
+    with state_lock:
+        state['done'] = True
+        if state['status'] in ('Ejecutando', 'Iniciando'):
+            state['status'] = 'Agotado' if rc != 0 else 'Completado'
+
     progress_thread.join(timeout=2)
-    # Mostrar las lineas de log acumuladas durante la ejecucion de hashcat
-    if state.get('log_lines'):
-        print()
-        for ln in state['log_lines']:
-            cprint(f"  {ln}", Colors.BLUE)
-        print()
-    print("\033[2B" + " " * 80)
+
+    # Limpiar linea de progreso y mostrar resultado final
+    filled_bar = '\u2588' * 24
+    elapsed_final = _fmt_time(time.time() - state['start_time'])
+    print(f"\r  {Colors.CYAN}[{filled_bar}]{Colors.ENDC} {Colors.BOLD}100.00%{Colors.ENDC} "
+          f"{Colors.WARNING}ETA:{Colors.ENDC}00m:00s     "
+          f"{Colors.CYAN}T:{Colors.ENDC}{elapsed_final} [{state['status']}]")
     print()
 
-    if rc == 0:
-        cprint(f"\n  [*] Hashcat completo exitosamente.", Colors.GREEN)
-    elif rc == 1:
-        cprint(f"\n  [*] Hashcat finalizo (codigo 1 - no encontrada o invalido).", Colors.WARNING)
-    else:
-        cprint(f"\n  [*] Hashcat finalizo (codigo: {rc}).", Colors.WARNING)
-
-    show_cmd = f"hashcat -m 22000 --show {hc22000_file}"
-    stdout_show, _, _ = run_cmd(show_cmd, timeout=15)
-
+    # Intentar recuperar password desde el outfile
     password = None
-    if stdout_show and stdout_show.strip():
-        for line in stdout_show.strip().split('\n'):
-            line = line.strip()
-            if ':' in line and not line.startswith('Dictionary') and not line.startswith('Hashfile'):
-                parts = line.split(':')
-                if len(parts) >= 2:
-                    password = parts[-1].strip()
-                    break
+    if outfile.exists() and outfile.stat().st_size > 0:
+        try:
+            password = outfile.read_text().strip()
+            with state_lock:
+                state['status'] = 'Cracked!'
+        except:
+            pass
+        try:
+            outfile.unlink()
+        except:
+            pass
+
+    # Si no se encontro en outfile, intentar con --show
+    if not password:
+        show_cmd = f"hashcat -m 22000 --show {hc22000_file}"
+        stdout_show, _, _ = run_cmd(show_cmd, timeout=15)
+        if stdout_show and stdout_show.strip():
+            for l in stdout_show.strip().split('\n'):
+                l = l.strip()
+                if ':' in l and not l.startswith('Dictionary') and not l.startswith('Hashfile'):
+                    parts = l.split(':')
+                    if len(parts) >= 2:
+                        password = parts[-1].strip()
+                        break
 
     if password:
         cprint("\n" + "=" * 60, Colors.GREEN)
@@ -1075,7 +1040,6 @@ def crack_password(hc22000_file, essid):
         cprint(f"\n  {Colors.WARNING}[!] No se encontro la contrasena para '{essid}'.{Colors.ENDC}", Colors.WARNING)
         cprint("  [*] La clave podria no ser numerica de 8 digitos.", Colors.WARNING)
         return None
-
 # =============================================================================
 # PASO 8: GUARDAR RESULTADOS
 # =============================================================================
