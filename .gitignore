@@ -20,6 +20,15 @@ __pycache__/
 # Password output
 passwords_encontradas.txt
 
+# Directories to exclude
+Documentacion/
+Backup/
+aircrack-ng/
+
+# Exclude all dictionary files except español.txt
+diccionarios/*
+!diccionarios/español.txt
+
 # Misc
 *~
 .DS_Store
