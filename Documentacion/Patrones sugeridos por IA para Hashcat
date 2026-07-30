@@ -1,0 +1,68 @@
+1. Ataque de fuerza bruta con patron de 8 digitos
+
+hashcat -m 22000 -a 3 /home/lhedwin/Hacking/wifi/ACLF-wjTu-2.4G_215541-01.hc22000 "?d?d?d?d?d?d?d?d" -w 4 -D 2 --hwmon-temp-abort=95 -O
+
+
+2. Ataque de fuerza bruta con patron de Cédulas Puras de 7 Dígitos (Población mayor / Negocios antiguos)
+
+hashcat -m 22000 -a 3 /home/lhedwin/Hacking/wifi/ACLF-wjTu-2.4G_215541-01.hc22000 "?d?d?d?d?d?d?d" -w 4 -D 2 --hwmon-temp-abort=95 -O
+
+
+3. Ataque de fuerza bruta con patron de Cédulas con la letra "V" al inicio (ej: V12345678 o v12345678)
+
+hashcat -m 22000 -a 3 /home/lhedwin/Hacking/wifi/ACLF-wjTu-2.4G_215541-01.hc22000 -1 Vv "?1?d?d?d?d?d?d?d?d" -w 4 -D 2 --hwmon-temp-abort=95 -O
+
+
+4. Ataque de fuerza bruta con patron de Cédulas con el prefijo "CI" (ej: CI12345678 o ci12345678)
+
+hashcat -m 22000 -a 3 /home/lhedwin/Hacking/wifi/ACLF-wjTu-2.4G_215541-01.hc22000 -1 cC -2 iI "?1?2?d?d?d?d?d?d?d?d" -w 4 -D 2 --hwmon-temp-abort=95 -O
+
+
+5. Ataque de fuerza bruta con patron de Números Celulares de Venezuela (Formatos 0414, 0424, 0412, 0416)
+
+hashcat -m 22000 -a 3 /home/lhedwin/Hacking/wifi/ACLF-wjTu-2.4G_215541-01.hc22000 -1 1246 "04?1?d?d?d?d?d?d?d" -w 4 -D 2 --hwmon-temp-abort=95 -O
+
+
+6. Teléfonos Fijos de la Región Central (Formatos 0243 y 0241)
+
+hashcat -m 22000 -a 3 /home/lhedwin/Hacking/wifi/ACLF-wjTu-2.4G_215541-01.hc22000 -1 34 "024?1?d?d?d?d?d?d?d" -w 4 -D 2 --hwmon-temp-abort=95 -O
+
+
+7. Ataque Híbrido: Palabras Clave en Español + Años Recientes
+
+hashcat -m 22000 -a 6 /home/lhedwin/Hacking/wifi/ACLF-wjTu-2.4G_215541-01.hc22000 /home/lhedwin/Hacking/wifi/diccionarios/Español.txt "?d?d?d?d" -w 4 -D 2 --hwmon-temp-abort=95 -O
+
+8. Ataque Híbrido: Palabras Clave en Español + 2, 3 o 4 Dígitos (Modificar la mascara dependiendo del numero de digitos)
+
+hashcat -m 22000 -a 6 /home/lhedwin/Hacking/wifi/ACLF-wjTu-2.4G_215541-01.hc22000 /home/lhedwin/Hacking/wifi/diccionarios/nombres.txt "?d?d?d" -w 4 -D 2 --hwmon-temp-abort=95 -O
+
+
+9. Ataque con diccionario mas sufijo incremental de 2 a 4 digitos
+
+hashcat -m 22000 -a 0 /home/lhedwin/Hacking/wifi/ACLF-wjTu-2.4G_215541-01.hc22000 /home/lhedwin/Hacking/wifi/diccionarios/español.txt -r /home/lhedwin/Hacking/wifi/rules/numeros_2_4.rule -w 4 -D 2 --hwmon-temp-abort=95 -O
+
+
+10. Ataque con diccionario español con Prefijo Especial y Sufijo Numérico de 4 digitos
+
+hashcat -m 22000 -a 0 /home/lhedwin/Hacking/wifi/ACLF-wjTu-2.4G_215541-01.hc22000 /home/lhedwin/Hacking/wifi/diccionarios/español.txt -r /home/lhedwin/Hacking/wifi/rules/prefijo_y_4final.rule -w 4 -D 2 --hwmon-temp-abort=95 -O
+
+
+11. Ataque con diccionario español y Sufijo Numérico de 2 digitos mas caracter especial
+
+hashcat -m 22000 -a 0 /home/lhedwin/Hacking/wifi/ACLF-wjTu-2.4G_215541-01.hc22000 /home/lhedwin/Hacking/wifi/diccionarios/español.txt -r /home/lhedwin/Hacking/wifi/rules/solo_2num_sufijo.rule -w 4 -D 2 --hwmon-temp-abort=95 -O
+
+12. Ataque con diccionario español que utiliza dos palabras separadas por el caracter especial ""@""
+
+hashcat -m 22000 -a 1 /home/lhedwin/Hacking/wifi/ACLF-wjTu-2.4G_215541-01.hc22000 /home/lhedwin/Hacking/wifi/diccionarios/español.txt /home/lhedwin/Hacking/wifi/diccionarios/español.txt -j '$@' -w 4 -D 2 --hwmon-temp-abort=95 -O
+
+
+13. Ataque Híbrido usando diccionario y regla que agrega de manera incremental de 1 a 4 digitos mas un caracter especial al final de cada palabra
+
+hashcat -m 22000 -a 0 /home/lhedwin/Hacking/wifi/index123_140028-01.hc22000 /home/lhedwin/Hacking/wifi/diccionarios/español.txt -r /home/lhedwin/Hacking/wifi/rules/sufijo_1-4_digitos_especial.rule -w 4 -D 2 --hwmon-temp-abort=95 -O
+
+
+
+
+
+
+

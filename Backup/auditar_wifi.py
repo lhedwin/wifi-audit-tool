@@ -67,140 +67,6 @@ def cprint(msg, color=Colors.ENDC, end='\n'):
 
 
 # =============================================================================
-# UTILIDADES - TEMPERATURA CPU/GPU
-# =============================================================================
-
-def get_temp_color(temp, is_gpu=False):
-    """
-    Retorna el codigo de color ANSI segun la temperatura.
-    CPU:  Verde(20-50) Amarillo(51-75) Rojo(76-90) Magenta(>90)
-    GPU:  Verde(20-60) Amarillo(61-80) Rojo(81-95) Magenta(>95)
-    """
-    if is_gpu:
-        if temp <= 60:
-            return '\033[92m'  # Verde
-        elif temp <= 80:
-            return '\033[93m'  # Amarillo
-        elif temp <= 95:
-            return '\033[91m'  # Rojo
-        else:
-            return '\033[95m'  # Magenta
-    else:
-        if temp <= 50:
-            return '\033[92m'  # Verde
-        elif temp <= 75:
-            return '\033[93m'  # Amarillo
-        elif temp <= 90:
-            return '\033[91m'  # Rojo
-        else:
-            return '\033[95m'  # Magenta
-
-
-def read_temperatures():
-    """
-    Lee las temperaturas de CPU y GPU desde los sensores del sistema.
-    Retorna (cpu_temp, gpu_temp) en grados Celsius, o None si no se puede leer.
-    """
-    cpu_temp = None
-    gpu_temp = None
-
-    # CPU: Priorizar zonas reales (x86_pkg_temp, coretemp, cpu-thermal) sobre acpitz
-    try:
-        import glob
-        cpu_zones = []
-        acpi_zones = []
-        for z_path in sorted(glob.glob('/sys/class/thermal/thermal_zone*/temp')):
-            type_path = z_path.replace('/temp', '/type')
-            try:
-                with open(type_path, 'r') as tf:
-                    zone_type = tf.read().strip().lower()
-            except:
-                zone_type = 'unknown'
-            try:
-                with open(z_path, 'r') as f:
-                    raw = f.read().strip()
-                if raw:
-                    temp_c = int(raw) / 1000.0
-                    if 15 <= temp_c <= 110:
-                        if 'x86_pkg_temp' in zone_type or 'coretemp' in zone_type or 'cpu-thermal' in zone_type:
-                            cpu_zones.append((temp_c, zone_type))
-                        elif 'acpitz' not in zone_type:
-                            cpu_zones.append((temp_c, zone_type))
-                        else:
-                            acpi_zones.append(temp_c)
-            except:
-                pass
-        if cpu_zones:
-            cpu_temp = cpu_zones[0][0]
-        elif acpi_zones:
-            cpu_temp = acpi_zones[0]
-    except:
-        pass
-
-    # GPU: Intentar leer desde nvidia-smi
-    try:
-        stdout, _, rc = run_cmd("nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits", timeout=5)
-        if rc == 0 and stdout.strip():
-            gpu_val = float(stdout.strip().split('\n')[0].strip())
-            if 15 <= gpu_val <= 120:
-                gpu_temp = gpu_val
-    except:
-        pass
-
-    # GPU alternativa: /sys/class/drm/card*/device/hwmon/hwmon*/temp1_input
-    if gpu_temp is None:
-        try:
-            import glob
-            for path in glob.glob('/sys/class/drm/card*/device/hwmon/hwmon*/temp1_input'):
-                try:
-                    with open(path, 'r') as f:
-                        raw = f.read().strip()
-                    if raw:
-                        temp_c = int(raw) / 1000.0
-                        if 15 <= temp_c <= 120:
-                            gpu_temp = temp_c
-                            break
-                except:
-                    pass
-        except:
-            pass
-
-    return cpu_temp, gpu_temp
-
-
-def format_temperature_line(cpu_temp, gpu_temp):
-    """
-    Formatea una linea con las temperaturas de CPU y GPU con colores.
-    """
-    parts = []
-    if cpu_temp is not None:
-        color = get_temp_color(cpu_temp, is_gpu=False)
-        if cpu_temp <= 50:
-            emoji = '\U0001f7e2'
-        elif cpu_temp <= 75:
-            emoji = '\U0001f7e1'
-        else:
-            emoji = '\U0001f534'
-        parts.append(f"CPU:{color}{cpu_temp:.0f}C{Colors.ENDC}{emoji}")
-    else:
-        parts.append(f"CPU:{Colors.FAIL}N/A{Colors.ENDC}")
-
-    if gpu_temp is not None:
-        color = get_temp_color(gpu_temp, is_gpu=True)
-        if gpu_temp <= 60:
-            emoji = '\U0001f7e2'
-        elif gpu_temp <= 80:
-            emoji = '\U0001f7e1'
-        else:
-            emoji = '\U0001f534'
-        parts.append(f"GPU:{color}{gpu_temp:.0f}C{Colors.ENDC}{emoji}")
-    else:
-        parts.append(f"GPU:{Colors.FAIL}N/A{Colors.ENDC}")
-
-    return ' | '.join(parts)
-
-
-# =============================================================================
 # UTILIDADES - EJECUCION DE COMANDOS (sin shell=True para evitar errores zsh)
 # =============================================================================
 
@@ -1059,14 +925,9 @@ def crack_password(hc22000_file, essid):
 
             elapsed_s = _fmt_time(elapsed_total)
 
-            # Leer temperaturas CPU/GPU
-            cpu_t, gpu_t = read_temperatures()
-            temp_str = format_temperature_line(cpu_t, gpu_t)
-
             line = (f"\r  {Colors.CYAN}[{bar}]{Colors.ENDC} {Colors.BOLD}{pct:6.2f}%{Colors.ENDC} "
                     f"{Colors.WARNING}ETA:{Colors.ENDC}{eta_s:10} "
-                    f"{Colors.CYAN}T:{Colors.ENDC}{elapsed_s:7} [{status}] "
-                    f"{temp_str}")
+                    f"{Colors.CYAN}T:{Colors.ENDC}{elapsed_s:7} [{status}]")
             print(line + '\033[0K', end='', flush=True)
             time.sleep(0.1)
 
@@ -1274,14 +1135,9 @@ def crack_password_cedula(hc22000_file, essid):
 
             elapsed_s = _fmt_time(elapsed_total)
 
-            # Leer temperaturas CPU/GPU
-            cpu_t, gpu_t = read_temperatures()
-            temp_str = format_temperature_line(cpu_t, gpu_t)
-
             line = ("\r  " + Colors.CYAN + "[" + bar + "]" + Colors.ENDC + " " + Colors.BOLD + "{:6.2f}%".format(pct) + Colors.ENDC + " "
                     + Colors.WARNING + "ETA:" + Colors.ENDC + "{:>10}".format(eta_s) + " "
-                    + Colors.CYAN + "T:" + Colors.ENDC + "{:>7}".format(elapsed_s) + " [" + status + "] "
-                    + temp_str)
+                    + Colors.CYAN + "T:" + Colors.ENDC + "{:>7}".format(elapsed_s) + " [" + status + "]")
             print(line + '\033[0K', end='', flush=True)
             time.sleep(0.1)
 
@@ -1494,14 +1350,9 @@ def crack_password_cedula_ci(hc22000_file, essid):
 
             elapsed_s = _fmt_time(elapsed_total)
 
-            # Leer temperaturas CPU/GPU
-            cpu_t, gpu_t = read_temperatures()
-            temp_str = format_temperature_line(cpu_t, gpu_t)
-
             line = ("\r  " + Colors.CYAN + "[" + bar + "]" + Colors.ENDC + " " + Colors.BOLD + "{:6.2f}%".format(pct) + Colors.ENDC + " "
                     + Colors.WARNING + "ETA:" + Colors.ENDC + "{:>10}".format(eta_s) + " "
-                    + Colors.CYAN + "T:" + Colors.ENDC + "{:>7}".format(elapsed_s) + " [" + status + "] "
-                    + temp_str)
+                    + Colors.CYAN + "T:" + Colors.ENDC + "{:>7}".format(elapsed_s) + " [" + status + "]")
             print(line + '\033[0K', end='', flush=True)
             time.sleep(0.1)
 
@@ -1716,14 +1567,9 @@ def crack_password_celular_venezuela(hc22000_file, essid):
 
             elapsed_s = _fmt_time(elapsed_total)
 
-            # Leer temperaturas CPU/GPU
-            cpu_t, gpu_t = read_temperatures()
-            temp_str = format_temperature_line(cpu_t, gpu_t)
-
             line = ("\r  " + Colors.CYAN + "[" + bar + "]" + Colors.ENDC + " " + Colors.BOLD + "{:6.2f}%".format(pct) + Colors.ENDC + " "
                     + Colors.WARNING + "ETA:" + Colors.ENDC + "{:>10}".format(eta_s) + " "
-                    + Colors.CYAN + "T:" + Colors.ENDC + "{:>7}".format(elapsed_s) + " [" + status + "] "
-                    + temp_str)
+                    + Colors.CYAN + "T:" + Colors.ENDC + "{:>7}".format(elapsed_s) + " [" + status + "]")
             print(line + '\033[0K', end='', flush=True)
             time.sleep(0.1)
 
@@ -1933,14 +1779,9 @@ def crack_password_diccionario(hc22000_file, essid, diccionario_path):
 
             elapsed_s = _fmt_time(elapsed_total)
 
-            # Leer temperaturas CPU/GPU
-            cpu_t, gpu_t = read_temperatures()
-            temp_str = format_temperature_line(cpu_t, gpu_t)
-
             line = ("\r  " + Colors.CYAN + "[" + bar + "]" + Colors.ENDC + " " + Colors.BOLD + "{:6.2f}%".format(pct) + Colors.ENDC + " "
                     + Colors.WARNING + "ETA:" + Colors.ENDC + "{:>10}".format(eta_s) + " "
-                    + Colors.CYAN + "T:" + Colors.ENDC + "{:>7}".format(elapsed_s) + " [" + status + "] "
-                    + temp_str)
+                    + Colors.CYAN + "T:" + Colors.ENDC + "{:>7}".format(elapsed_s) + " [" + status + "]")
             print(line + '\033[0K', end='', flush=True)
             time.sleep(0.1)
 
@@ -2151,14 +1992,9 @@ def crack_password_diccionario_con_regla(hc22000_file, essid, diccionario_path, 
 
             elapsed_s = _fmt_time(elapsed_total)
 
-            # Leer temperaturas CPU/GPU
-            cpu_t, gpu_t = read_temperatures()
-            temp_str = format_temperature_line(cpu_t, gpu_t)
-
             line = ("\r  " + Colors.CYAN + "[" + bar + "]" + Colors.ENDC + " " + Colors.BOLD + "{:6.2f}%".format(pct) + Colors.ENDC + " "
                     + Colors.WARNING + "ETA:" + Colors.ENDC + "{:>10}".format(eta_s) + " "
-                    + Colors.CYAN + "T:" + Colors.ENDC + "{:>7}".format(elapsed_s) + " [" + status + "] "
-                    + temp_str)
+                    + Colors.CYAN + "T:" + Colors.ENDC + "{:>7}".format(elapsed_s) + " [" + status + "]")
             print(line + '\033[0K', end='', flush=True)
             time.sleep(0.1)
 

@@ -37,9 +37,7 @@ Subimos el archivo .cap a https://hashcat.net/cap2hashcat/ y obtenemos el archiv
 
 3-) Crackeamos el archivo .hc22000 para recuperar la contraseña:
 
-***********************************************************************************************************************************************************
-*** Recuperando contraseñas usando wordlist de palabras en español con archivo de reglas que agrega de manera incremental de 1 a 4 digitos mas un caracter especial al final de cada palabra (5 days, 22 hours):
-hashcat -m 22000 -a 0 /home/lhedwin/Hacking/wifi/aircrack-ng/SAV-01.hc22000 /home/lhedwin/Hacking/wifi/aircrack-ng/diccionarios/espanol.txt -r /home/lhedwin/Hacking/wifi/aircrack-ng/rules/reglas_1-4_digitos_especial.rule -w 4 -D 2 --hwmon-temp-abort=95 -O
+*********************************************************************************************************************************************
 
 *** Recuperando contraseñas usando wordlist de palabras en español con archivo de reglas que agrega un caracter especial al pricipio de cada palabra (46 secs):
 hashcat -m 22000 -a 0 /home/lhedwin/Hacking/wifi/aircrack-ng/SAV-01.hc22000 /home/lhedwin/Hacking/wifi/aircrack-ng/diccionarios/espanol.txt -r /home/lhedwin/Hacking/wifi/aircrack-ng/rules/reglas_prefijo_especial.rule -w 4 -D 2 --hwmon-temp-abort=95 -O
@@ -67,7 +65,7 @@ hashcat -m 22000 -a 0 /home/lhedwin/Hacking/wifi/aircrack-ng/SAV-01.hc22000 /hom
 hashcat -m 22000 -a 0 /home/lhedwin/Hacking/wifi/aircrack-ng/SAV-01.hc22000 /home/lhedwin/Hacking/wifi/aircrack-ng/diccionarios/espanol.txt -r /home/lhedwin/Hacking/wifi/aircrack-ng/rules/reglas_prefijo_especial.rule -r /home/lhedwin/Hacking/wifi/aircrack-ng/rules/reglas_1-4_digitos_especial.rule -w 4 -D 2 --hwmon-temp-abort=95 -O
 
 *** Recuperando contraseñas usando wordlist de palabras en español sin reglas:
-hashcat -m 22000 -a 0 /home/lhedwin/Hacking/wifi/aircrack-ng/SAV-01.hc22000 /home/lhedwin/Hacking/wifi/aircrack-ng/diccionarios/espanol.txt -w 4 -D 2 --hwmon-temp-abort=95 -O
+hashcat -m 22000 -a 0 /home/lhedwin/Hacking/wifi/SAV-01.hc22000 /home/lhedwin/Hacking/wifi/diccionarios/español.txt -w 4 -D 2 --hwmon-temp-abort=95 -O
 
 *** Recuperando contraseñas usando la wordlist Human Passwords Only sin archivo de reglas:
 hashcat -m 22000 -a 0 /home/lhedwin/Hacking/wifi/aircrack-ng/SAV-01.hc22000 /home/lhedwin/Hacking/wifi/aircrack-ng/diccionarios/crackstation-human-only.txt -w 4 -D 2 --hwmon-temp-abort=95 -O
