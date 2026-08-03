@@ -2282,6 +2282,224 @@ def crack_password_diccionario_con_regla(hc22000_file, essid, diccionario_path, 
         cprint("  [*] La clave no se encontro en el diccionario con la regla aplicada.", Colors.WARNING)
         return None
 
+
+# =============================================================================
+# PASO 7b: CRACKEAR CON HASHCAT - ATAQUE HIBRIDO (DICCIONARIO + SUFIJO NUMERICO)
+# =============================================================================
+
+def crack_password_hibrido_espanol(hc22000_file, essid, diccionario_path=None):
+    import threading
+
+    cprint("\n" + "=" * 60, Colors.HEADER)
+    cprint("  [7b] CRACKEANDO CON HASHCAT - ATAQUE HIBRIDO", Colors.HEADER)
+    cprint("=" * 60, Colors.HEADER)
+
+    # Usar diccionario espanol por defecto si no se especifica otro
+    if diccionario_path is None:
+        diccionario_path = str(WORK_DIR / "diccionarios" / "espanol.txt")
+    if not os.path.exists(diccionario_path):
+        cprint(f"\n  [!] Diccionario no encontrado: {diccionario_path}", Colors.FAIL)
+        cprint("  [*] Verifica que el archivo exista en la carpeta diccionarios/", Colors.WARNING)
+        return None
+
+    cprint(f"\n  Red:       {Colors.BOLD}{essid}{Colors.ENDC}", Colors.CYAN)
+    cprint(f"  Archivo:   {hc22000_file}", Colors.CYAN)
+    cprint(f"  Diccionario: {diccionario_path}", Colors.CYAN)
+    cprint(f"  Metodo:    Ataque hibrido (diccionario + sufijo 4 digitos numericos)", Colors.CYAN)
+    cprint(f"  Modo:      -a 6 (ataque hibrido: diccionario + mascara)", Colors.CYAN)
+    cprint(f"  Mascara:   ?d?d?d?d (4 digitos)", Colors.CYAN)
+    cprint(f"  Espacio:   {Colors.BOLD}palabras_diccionario * 10,000 combinaciones{Colors.ENDC}\n", Colors.CYAN)
+
+    device_id = None
+    try:
+        stdout_i, _, _ = run_cmd("hashcat -I", timeout=15)
+        for line in stdout_i.split('\n'):
+            m = re.search(r'Backend Device ID #(\d+)', line)
+            if m:
+                candidate = m.group(1)
+            if 'NVIDIA' in line and candidate:
+                device_id = candidate
+                break
+    except Exception:
+        pass
+
+    if device_id is None:
+        cprint("  [!] No se detecto GPU NVIDIA. Usando CPU por defecto.", Colors.WARNING)
+        device_args = []
+    else:
+        cprint(f"  [*] GPU detectada: NVIDIA (Device ID #{device_id})", Colors.GREEN)
+        device_args = ["-d", device_id]
+
+    state_lock = threading.Lock()
+    state = {
+        'done': False,
+        'start_time': time.time(),
+        'status': 'Iniciando',
+        'hashcat_eta_secs': 0,
+        'saw_eta': False,
+        'result_lines': [],
+    }
+
+    def _fmt_time(secs):
+        if secs is None or secs < 0 or secs == float('inf'):
+            return '--:--:--'
+        secs = int(secs)
+        h, m, s = secs // 3600, (secs % 3600) // 60, secs % 60
+        return f"{h}h:{m:02d}m:{s:02d}s" if h else f"{m:02d}m:{s:02d}s"
+
+    def draw_progress():
+        while not state['done']:
+            try:
+                cols = shutil.get_terminal_size((80, 20)).columns
+            except Exception:
+                cols = 80
+
+            with state_lock:
+                elapsed_total = time.time() - state['start_time']
+                eta_base = state['hashcat_eta_secs']
+                saw_eta = state['saw_eta']
+                status = state['status'][:10]
+
+            if saw_eta and eta_base > 0:
+                pct = (elapsed_total / eta_base) * 100.0
+                pct = min(99.5, max(pct, 0.0))
+                remaining_secs = max(0, eta_base - elapsed_total)
+                eta_s = _fmt_time(remaining_secs)
+            else:
+                pct = 0.0
+                eta_s = "Calculando..."
+
+            if cols < 80:
+                bar_width = 16
+            elif cols < 100:
+                bar_width = 20
+            else:
+                bar_width = 24
+            filled = int(bar_width * pct / 100.0)
+            bar = '\u2588' * filled + '\u2591' * (bar_width - filled)
+
+            elapsed_s = _fmt_time(elapsed_total)
+
+            # Leer temperaturas CPU/GPU
+            cpu_t, gpu_t = read_temperatures()
+            temp_str = format_temperature_line(cpu_t, gpu_t)
+
+            line = (f"\r  {Colors.CYAN}[{bar}]{Colors.ENDC} {Colors.BOLD}{pct:6.2f}%{Colors.ENDC} "
+                    f"{Colors.WARNING}ETA:{Colors.ENDC}{eta_s:10} "
+                    f"{Colors.CYAN}T:{Colors.ENDC}{elapsed_s:7} [{status}] "
+                    f"{temp_str}")
+            print(line + '\033[0K', end='', flush=True)
+            time.sleep(0.1)
+
+    hc_path = Path(hc22000_file)
+    outfile = hc_path.parent / f"{hc_path.stem}_hibrido_result.txt"
+
+    cmd = [
+        "hashcat", "-m", "22000", "-a", "6",
+        hc22000_file,
+        diccionario_path,
+        "?d?d?d?d",
+        "-w", "3",
+        "--outfile", str(outfile),
+        "--outfile-format=2",
+        "--status",
+        "--status-timer=1",
+    ] + device_args
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+    except FileNotFoundError:
+        cprint("[!] hashcat no encontrado.", Colors.FAIL)
+        return None
+
+    progress_thread = threading.Thread(target=draw_progress, daemon=True)
+    progress_thread.start()
+
+    for raw_line in proc.stdout:
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        with state_lock:
+            state['result_lines'].append(line)
+
+        if not state.get('saw_eta', False):
+            if 'Time.Estimated' in line or 'Estimated' in line:
+                match = re.search(r'\((.*?)\)', line)
+                if match:
+                    duration_str = match.group(1)
+                    seconds = parse_duration_to_seconds(duration_str)
+                    if seconds > 0:
+                        with state_lock:
+                            state['hashcat_eta_secs'] = seconds
+                            state['saw_eta'] = True
+                            state['status'] = 'Ejecutando'
+                            state['start_time'] = time.time()
+
+    proc.wait()
+    rc = proc.returncode
+
+    with state_lock:
+        state['done'] = True
+        if state['status'] in ('Ejecutando', 'Iniciando'):
+            state['status'] = 'Agotado' if rc != 0 else 'Completado'
+
+    progress_thread.join(timeout=2)
+
+    filled_bar = '\u2588' * 24
+    elapsed_final = _fmt_time(time.time() - state['start_time'])
+    print(f"\r  {Colors.CYAN}[{filled_bar}]{Colors.ENDC} {Colors.BOLD}100.00%{Colors.ENDC} "
+          f"{Colors.WARNING}ETA:{Colors.ENDC}00m:00s     "
+          f"{Colors.CYAN}T:{Colors.ENDC}{elapsed_final} [{state['status']}]")
+    print()
+
+    password = None
+    if outfile.exists() and outfile.stat().st_size > 0:
+        try:
+            password = outfile.read_text().strip()
+        except:
+            pass
+        try:
+            outfile.unlink()
+        except:
+            pass
+
+    if not password:
+        show_cmd = "hashcat -m 22000 --show " + hc22000_file
+        stdout_show, _, _ = run_cmd(show_cmd, timeout=15)
+        if stdout_show and stdout_show.strip():
+            for l in stdout_show.strip().split('\n'):
+                l = l.strip()
+                if ':' in l and not l.startswith('Dictionary') and not l.startswith('Hashfile'):
+                    parts = l.split(':')
+                    if len(parts) >= 2:
+                        password = parts[-1].strip()
+                        break
+
+    if password:
+        cprint("\n" + "=" * 60, Colors.GREEN)
+        cprint("  " + Colors.BOLD + "  CONTRASENA ENCONTRADA!" + Colors.ENDC, Colors.GREEN)
+        cprint("=" * 60, Colors.GREEN)
+        cprint("  Red:        " + Colors.BOLD + essid + Colors.ENDC, Colors.GREEN)
+        cprint("  Archivo:    " + hc22000_file, Colors.GREEN)
+        cprint("  Diccionario: " + diccionario_path, Colors.GREEN)
+        cprint("  Metodo:     Ataque hibrido (diccionario + sufijo 4 digitos)", Colors.GREEN)
+        cprint("  Password:   " + Colors.BOLD + password + Colors.ENDC, Colors.GREEN)
+        cprint("=" * 60 + "\n", Colors.GREEN)
+        return password
+    else:
+        cprint("\n  " + Colors.WARNING + "[!] No se encontro la contrasena para '" + essid + "'." + Colors.ENDC, Colors.WARNING)
+        cprint("  [*] La clave no se encontro con el ataque hibrido.", Colors.WARNING)
+        return None
+
+
 # =============================================================================
 # PASO 8: GUARDAR RESULTADOS
 # =============================================================================
@@ -2468,118 +2686,101 @@ def menu_capturar_handshake():
         mon_interface = enable_monitor_mode(interface)
         _mon_interface_global = mon_interface
 
-        # Outer loop: permite volver a escanear si se elige "Volver al principio"
-        while True:
-            networks = scan_networks(mon_interface)
-            if not networks:
-                cprint("\n[!] No hay redes protegidas para auditar.", Colors.FAIL)
-                input(f"\n{Colors.CYAN}[*] Presiona Enter para volver al menu principal...{Colors.ENDC}")
-                return
+        networks = scan_networks(mon_interface)
+        if not networks:
+            cprint("\n[!] No hay redes protegidas para auditar.", Colors.FAIL)
+            input(f"\n{Colors.CYAN}[*] Presiona Enter para volver al menu principal...{Colors.ENDC}")
+            return
 
-            display_networks(networks)
-            targets = select_targets(networks)
+        display_networks(networks)
+        targets = select_targets(networks)
 
-            # Si select_targets devuelve None (opcion 0), regresar al menu principal
-            if targets is None:
+        for i, target in enumerate(targets):
+            essid = target['essid']
+            bssid = target['bssid']
+
+            cprint("\n" + "#" * 60, Colors.BOLD)
+            cprint(f"  AUDITANDO RED {i+1} DE {len(targets)}", Colors.BOLD)
+            cprint(f"  {essid} ({bssid})", Colors.BOLD)
+            cprint("#" * 60, Colors.BOLD)
+
+            # Verificar si ya tenemos la contrasena
+            existing_pass = None
+            if PASSWORDS_FILE.exists():
+                with open(PASSWORDS_FILE, 'r') as pf:
+                    for line in pf:
+                        if bssid in line or essid in line:
+                            match = re.search(r'=\s*(\S+)$', line.strip())
+                            if match:
+                                existing_pass = match.group(1)
+                                break
+
+            if existing_pass:
+                cprint(f"\n  [*] Ya tenemos la contrasena de '{essid}': {Colors.BOLD}{existing_pass}{Colors.ENDC}", Colors.GREEN)
+                skip = input(f"\n  {Colors.WARNING}[?] Saltar esta red? (s/N): {Colors.ENDC}").strip().lower()
+                if skip == 's':
+                    continue
+
+            if i > 0:
+                proceed = input(f"\n  {Colors.WARNING}[?] Auditar la red '{essid}'? (S/n): {Colors.ENDC}").strip().lower()
+                if proceed == 'n':
+                    cprint(f"\n  [*] Red '{essid}' saltada por el usuario.", Colors.WARNING)
+                    continue
+
+            # ---- CAPTURA ----
+            cap_file = capture_handshake(target, mon_interface)
+
+            if cap_file is None:
                 cprint("\n  [*] Regresando al menu principal...", Colors.BLUE)
-                return
-
-            volver_al_principio = False
-
-            for i, target in enumerate(targets):
-                essid = target['essid']
-                bssid = target['bssid']
-
-                cprint("\n" + "#" * 60, Colors.BOLD)
-                cprint(f"  AUDITANDO RED {i+1} DE {len(targets)}", Colors.BOLD)
-                cprint(f"  {essid} ({bssid})", Colors.BOLD)
-                cprint("#" * 60, Colors.BOLD)
-
-                # Verificar si ya tenemos la contrasena
-                existing_pass = None
-                if PASSWORDS_FILE.exists():
-                    with open(PASSWORDS_FILE, 'r') as pf:
-                        for line in pf:
-                            if bssid in line or essid in line:
-                                match = re.search(r'=\s*(\S+)$', line.strip())
-                                if match:
-                                    existing_pass = match.group(1)
-                                    break
-
-                if existing_pass:
-                    cprint(f"\n  [*] Ya tenemos la contrasena de '{essid}': {Colors.BOLD}{existing_pass}{Colors.ENDC}", Colors.GREEN)
-                    skip = input(f"\n  {Colors.WARNING}[?] Saltar esta red? (s/N): {Colors.ENDC}").strip().lower()
-                    if skip == 's':
-                        continue
-
-                if i > 0:
-                    proceed = input(f"\n  {Colors.WARNING}[?] Auditar la red '{essid}'? (S/n): {Colors.ENDC}").strip().lower()
-                    if proceed == 'n':
-                        cprint(f"\n  [*] Red '{essid}' saltada por el usuario.", Colors.WARNING)
-                        continue
-
-                # ---- CAPTURA ----
-                cap_file = capture_handshake(target, mon_interface)
-
-                # Si capture_handshake devuelve "__VOLVER__", volver al principio del bucle (reescanear)
-                if cap_file == "__VOLVER__":
-                    cprint("\n  [*] Limpiando archivos temporales...", Colors.BLUE)
-                    run_cmd("rm -f /home/lhedwin/Hacking/wifi/*.cap /home/lhedwin/Hacking/wifi/*.csv /home/lhedwin/Hacking/wifi/*.netxml", timeout=10)
-                    cprint("  [*] Archivos temporales eliminados.", Colors.BLUE)
-                    volver_al_principio = True
-                    break
-
-                if cap_file is None:
-                    cprint("\n  [*] Regresando al menu principal...", Colors.BLUE)
-                    return
-
-                if not os.path.exists(cap_file):
-                    cprint("\n[!] Error: El archivo de captura no existe.", Colors.FAIL)
-                    run_cmd("rm -f /home/lhedwin/Hacking/wifi/*.cap /home/lhedwin/Hacking/wifi/*.csv /home/lhedwin/Hacking/wifi/*.netxml", timeout=10)
-                    cprint("\n  [*] Archivos temporales eliminados.", Colors.BLUE)
-                    volver_al_principio = True
-                    break
-
-                # ---- CONVERTIR A .hc22000 ----
-                hc22000_file = convert_to_hc22000(cap_file)
-
-                # ---- MOSTRAR ARCHIVO GENERADO DE FORMA DESTACADA ----
-                if hc22000_file and os.path.exists(hc22000_file):
-                    cprint("\n" + "=" * 60, Colors.GREEN)
-                    cprint(f"  {Colors.BOLD}  HANDSHAKE CAPTURADO Y CONVERTIDO EXITOSAMENTE!{Colors.ENDC}", Colors.GREEN)
-                    cprint("=" * 60, Colors.GREEN)
-                    cprint(f"  Red:     {Colors.BOLD}{essid}{Colors.ENDC}", Colors.GREEN)
-                    cprint(f"  BSSID:   {bssid}", Colors.GREEN)
-                    cprint(f"  Archivo: {Colors.BOLD}{hc22000_file}{Colors.ENDC}", Colors.GREEN)
-                    try:
-                        size = os.path.getsize(hc22000_file)
-                        cprint(f"  Tamano:  {size} bytes", Colors.GREEN)
-                    except:
-                        pass
-                    cprint("=" * 60 + "\n", Colors.GREEN)
-                else:
-                    cprint(f"\n[!] No se pudo convertir la captura para '{essid}'.", Colors.FAIL)
-                    run_cmd("rm -f /home/lhedwin/Hacking/wifi/*.cap /home/lhedwin/Hacking/wifi/*.csv /home/lhedwin/Hacking/wifi/*.netxml", timeout=10)
-                    cprint(f"\n  [*] Archivos temporales eliminados.", Colors.BLUE)
-                    volver_al_principio = True
-                    break
-
-                # ---- LIMPIEZA DE ARCHIVOS .cap, .csv, .netxml ----
                 run_cmd("rm -f /home/lhedwin/Hacking/wifi/*.cap /home/lhedwin/Hacking/wifi/*.csv /home/lhedwin/Hacking/wifi/*.netxml", timeout=10)
-                cprint(f"\n  [*] Archivos .cap, .csv, .netxml eliminados.", Colors.BLUE)
-
-                # Preguntar si continuar con siguiente red
-                if i < len(targets) - 1:
-                    cont = input(f"\n  {Colors.WARNING}[?] Continuar con la siguiente red? (S/n): {Colors.ENDC}").strip().lower()
-                    if cont == 'n':
-                        cprint("\n  [*] Captura terminada por el usuario.", Colors.WARNING)
-                        volver_al_principio = True
-                        break
-
-            if not volver_al_principio:
-                # Si no se eligio volver al principio, salir del bucle
+                cprint("  [*] Archivos temporales eliminados.", Colors.BLUE)
                 break
-            # Si volver_al_principio es True, el while True continua (reescanea)
+
+            if cap_file == "__VOLVER__":
+                cprint("\n  [*] Volviendo a seleccionar otra red...", Colors.BLUE)
+                run_cmd("rm -f /home/lhedwin/Hacking/wifi/*.cap /home/lhedwin/Hacking/wifi/*.csv /home/lhedwin/Hacking/wifi/*.netxml", timeout=10)
+                cprint("  [*] Archivos temporales eliminados.", Colors.BLUE)
+                break
+
+            if not os.path.exists(cap_file):
+                cprint("\n[!] Error: El archivo de captura no existe.", Colors.FAIL)
+                run_cmd("rm -f /home/lhedwin/Hacking/wifi/*.cap /home/lhedwin/Hacking/wifi/*.csv /home/lhedwin/Hacking/wifi/*.netxml", timeout=10)
+                cprint("\n  [*] Archivos temporales eliminados.", Colors.BLUE)
+                break
+
+            # ---- CONVERTIR A .hc22000 ----
+            hc22000_file = convert_to_hc22000(cap_file)
+
+            # ---- MOSTRAR ARCHIVO GENERADO DE FORMA DESTACADA ----
+            if hc22000_file and os.path.exists(hc22000_file):
+                cprint("\n" + "=" * 60, Colors.GREEN)
+                cprint(f"  {Colors.BOLD}  HANDSHAKE CAPTURADO Y CONVERTIDO EXITOSAMENTE!{Colors.ENDC}", Colors.GREEN)
+                cprint("=" * 60, Colors.GREEN)
+                cprint(f"  Red:     {Colors.BOLD}{essid}{Colors.ENDC}", Colors.GREEN)
+                cprint(f"  BSSID:   {bssid}", Colors.GREEN)
+                cprint(f"  Archivo: {Colors.BOLD}{hc22000_file}{Colors.ENDC}", Colors.GREEN)
+                try:
+                    size = os.path.getsize(hc22000_file)
+                    cprint(f"  Tamano:  {size} bytes", Colors.GREEN)
+                except:
+                    pass
+                cprint("=" * 60 + "\n", Colors.GREEN)
+            else:
+                cprint(f"\n[!] No se pudo convertir la captura para '{essid}'.", Colors.FAIL)
+                run_cmd("rm -f /home/lhedwin/Hacking/wifi/*.cap /home/lhedwin/Hacking/wifi/*.csv /home/lhedwin/Hacking/wifi/*.netxml", timeout=10)
+                cprint(f"\n  [*] Archivos temporales eliminados.", Colors.BLUE)
+                break
+
+            # ---- LIMPIEZA DE ARCHIVOS .cap, .csv, .netxml ----
+            run_cmd("rm -f /home/lhedwin/Hacking/wifi/*.cap /home/lhedwin/Hacking/wifi/*.csv /home/lhedwin/Hacking/wifi/*.netxml", timeout=10)
+            cprint(f"\n  [*] Archivos .cap, .csv, .netxml eliminados.", Colors.BLUE)
+
+            # Preguntar si continuar con siguiente red
+            if i < len(targets) - 1:
+                cont = input(f"\n  {Colors.WARNING}[?] Continuar con la siguiente red? (S/n): {Colors.ENDC}").strip().lower()
+                if cont == 'n':
+                    cprint("\n  [*] Captura terminada por el usuario.", Colors.WARNING)
+                    break
 
     except SystemExit:
         raise
@@ -2609,6 +2810,62 @@ def menu_capturar_handshake():
 
 
 # =============================================================================
+# AUXILIAR: SELECCIONAR DICCIONARIO
+# =============================================================================
+
+def seleccionar_diccionario():
+    """
+    Lista los diccionarios disponibles en la carpeta diccionarios/
+    (y otros .txt en WORK_DIR) y permite al usuario elegir uno.
+    Retorna la ruta del diccionario o None si se cancela.
+    """
+    diccionarios_dir = WORK_DIR / "diccionarios"
+    diccionario_files = []
+    if diccionarios_dir.exists():
+        for ext in ["*.txt", "*.lst", "*.dic", "*.wordlist"]:
+            diccionario_files.extend(list(diccionarios_dir.glob(ext)))
+        for f in diccionarios_dir.iterdir():
+            if f.is_file() and f.suffix == '' and f not in diccionario_files:
+                diccionario_files.append(f)
+
+    if not diccionario_files:
+        cprint("\n  [!] No se encontraron archivos de diccionario en: " + str(diccionarios_dir), Colors.FAIL)
+        cprint("  [*] Buscando en otras ubicaciones...", Colors.WARNING)
+        for f in WORK_DIR.glob("*.txt"):
+            if f.is_file() and f.name != "passwords_encontradas.txt":
+                diccionario_files.append(f)
+
+    if not diccionario_files:
+        cprint("\n  [!] No se encontraron diccionarios disponibles.", Colors.FAIL)
+        try:
+            input("\n" + Colors.CYAN + "[*] Presiona Enter para continuar..." + Colors.ENDC)
+        except (EOFError, KeyboardInterrupt):
+            pass
+        return None
+
+    cprint("\n" + Colors.BOLD + "Diccionarios disponibles:" + Colors.ENDC, Colors.CYAN)
+    for idx, f in enumerate(diccionario_files, 1):
+        size_kb = f.stat().st_size / 1024
+        cprint("  " + Colors.BOLD + "[" + str(idx) + "]" + Colors.ENDC + " " + f.name + " (" + "{:.1f}".format(size_kb) + " KB)", Colors.BLUE)
+
+    while True:
+        try:
+            dic_choice = input("\n  " + Colors.WARNING + "[?] Selecciona un diccionario por numero (o 0 para cancelar): " + Colors.ENDC).strip()
+            if dic_choice == '0':
+                cprint("\n  [*] Operacion cancelada.", Colors.BLUE)
+                return None
+            try:
+                idx = int(dic_choice)
+                if 1 <= idx <= len(diccionario_files):
+                    return str(diccionario_files[idx - 1])
+            except ValueError:
+                pass
+            cprint("  [!] Opcion invalida. Ingresa un numero del 1 al " + str(len(diccionario_files)) + " o 0 para cancelar.", Colors.FAIL)
+        except (EOFError, KeyboardInterrupt):
+            cprint("\n  [!] Entrada no disponible.", Colors.FAIL)
+            return None
+
+# =============================================================================
 # MENU: DESCIFRAR CONTRASENA DEL HANDSHAKE
 # =============================================================================
 
@@ -2617,16 +2874,17 @@ def menu_descifrar_password():
     Flujo para descifrar un archivo .hc22000 existente:
     1. Listar archivos .hc22000 disponibles
     2. Seleccionar archivo o ingresar ruta
-    3. Submenu con tipo de ataque
-    4. Mostrar resultado y guardar si se encuentra
-    5. Volver al menu
+    3. Mostrar submenu con metodos de ataque
+    4. Ejecutar hashcat con el metodo seleccionado
+    5. Mostrar resultado y guardar si se encuentra
+    6. Volver al menu
     """
     cprint("\n" + "=" * 60, Colors.HEADER)
     cprint("  OPCION 2: DESCIFRAR CONTRASENA DEL HANDSHAKE", Colors.HEADER)
     cprint("=" * 60, Colors.HEADER)
 
     while True:
-        # ---- SELECCION DE ARCHIVO ----
+        # Listar archivos .hc22000 disponibles
         hc22000_files = list(WORK_DIR.glob("*.hc22000"))
         if AIRCRACK_DIR.exists():
             hc22000_files.extend(AIRCRACK_DIR.glob("*.hc22000"))
@@ -2634,16 +2892,16 @@ def menu_descifrar_password():
         hc22000_path = None
 
         if hc22000_files:
-            cprint("\n" + Colors.BOLD + "Archivos .hc22000 encontrados:" + Colors.ENDC, Colors.CYAN)
+            cprint(f"\n{Colors.BOLD}Archivos .hc22000 encontrados:{Colors.ENDC}", Colors.CYAN)
             for idx, f in enumerate(hc22000_files, 1):
                 size = f.stat().st_size
-                cprint("  " + Colors.BOLD + "[" + str(idx) + "]" + Colors.ENDC + " " + f.name + " (" + str(size) + " bytes)", Colors.BLUE)
+                cprint(f"  {Colors.BOLD}[{idx}]{Colors.ENDC} {f.name} ({size} bytes)", Colors.BLUE)
 
-            cprint("\n" + Colors.WARNING + "[?] Selecciona un archivo por numero, o escribe 'manual' para ingresar una ruta:", Colors.ENDC)
+            cprint(f"\n{Colors.WARNING}[?] Selecciona un archivo por numero, o escribe 'manual' para ingresar una ruta:{Colors.ENDC}", Colors.ENDC)
 
             while True:
                 try:
-                    choice = input("\n  " + Colors.WARNING + "[?] Opcion: " + Colors.ENDC).strip().lower()
+                    choice = input(f"\n  {Colors.WARNING}[?] Opcion: {Colors.ENDC}").strip().lower()
                     if choice == 'manual':
                         break
                     else:
@@ -2654,16 +2912,16 @@ def menu_descifrar_password():
                                 break
                         except ValueError:
                             pass
-                        cprint("  [!] Opcion invalida. Ingresa un numero del 1 al " + str(len(hc22000_files)) + " o 'manual'.", Colors.FAIL)
+                        cprint(f"  [!] Opcion invalida. Ingresa un numero del 1 al {len(hc22000_files)} o 'manual'.", Colors.FAIL)
                 except (EOFError, KeyboardInterrupt):
                     cprint("\n  [!] Entrada no disponible. Volviendo al menu...", Colors.FAIL)
                     return
 
         if not hc22000_path:
-            cprint("\n" + Colors.WARNING + "[?] Ingresa la ruta del archivo .hc22000:")
-            cprint("     " + Colors.BLUE + "(ej: /home/lhedwin/Hacking/wifi/MiRed_123456.hc22000)")
+            cprint(f"\n  {Colors.WARNING}[?] Ingresa la ruta del archivo .hc22000:{Colors.ENDC}")
+            cprint(f"     {Colors.BLUE}(ej: /home/lhedwin/Hacking/wifi/MiRed_123456.hc22000){Colors.ENDC}")
             try:
-                ruta = input("\n  " + Colors.WARNING + "[?] Ruta: " + Colors.ENDC).strip()
+                ruta = input(f"\n  {Colors.WARNING}[?] Ruta: {Colors.ENDC}").strip()
                 if not ruta:
                     cprint("  [!] No se ingreso ninguna ruta. Volviendo al menu...", Colors.WARNING)
                     return
@@ -2675,45 +2933,46 @@ def menu_descifrar_password():
                 return
 
         if not os.path.exists(hc22000_path):
-            cprint("\n  [!] El archivo '" + hc22000_path + "' no existe.", Colors.FAIL)
-            input("\n" + Colors.CYAN + "[*] Presiona Enter para continuar..." + Colors.ENDC)
-            continue
+            cprint(f"\n  [!] El archivo '{hc22000_path}' no existe.", Colors.FAIL)
+            input(f"\n{Colors.CYAN}[*] Presiona Enter para volver al menu principal...{Colors.ENDC}")
+            return
 
         if not hc22000_path.endswith('.hc22000'):
-            cprint("\n  [!] El archivo debe tener extension .hc22000", Colors.FAIL)
-            input("\n" + Colors.CYAN + "[*] Presiona Enter para continuar..." + Colors.ENDC)
-            continue
+            cprint(f"\n  [!] El archivo debe tener extension .hc22000", Colors.FAIL)
+            input(f"\n{Colors.CYAN}[*] Presiona Enter para volver al menu principal...{Colors.ENDC}")
+            return
 
         basename = Path(hc22000_path).stem
         essid = basename
 
-        cprint("\n  [*] Archivo seleccionado: " + Colors.BOLD + hc22000_path + Colors.ENDC, Colors.GREEN)
+        cprint(f"\n  [*] Archivo seleccionado: {Colors.BOLD}{hc22000_path}{Colors.ENDC}", Colors.GREEN)
 
         try:
-            resp = input("\n  " + Colors.WARNING + "[?] Nombre de la red (ESSID) para referencia (Enter para usar '" + basename + "'): " + Colors.ENDC).strip()
+            resp = input(f"\n  {Colors.WARNING}[?] Nombre de la red (ESSID) para referencia (Enter para usar '{basename}'): {Colors.ENDC}").strip()
             if resp:
                 essid = resp
         except (EOFError, KeyboardInterrupt):
             pass
 
-                # ---- SUBMENU DE ATAQUE ----
+        # ---- SUBMENU DE METODOS DE ATAQUE ----
         while True:
             cprint("\n" + "-" * 50, Colors.HEADER)
-            cprint("  SELECCIONA EL TIPO DE ATAQUE", Colors.HEADER)
+            cprint("  METODOS DE ATAQUE DISPONIBLES:", Colors.BOLD)
             cprint("-" * 50, Colors.HEADER)
-            cprint("  " + Colors.BOLD + "[1]" + Colors.ENDC + " " + Colors.CYAN + "Ataque de fuerza bruta con patron de 8 caracteres numericos" + Colors.ENDC)
-            cprint("  " + Colors.BOLD + "[2]" + Colors.ENDC + " " + Colors.CYAN + "Ataque de fuerza bruta con patron de Cedulas con la letra \"V\" al inicio (ej: V12345678 o v12345678)" + Colors.ENDC)
-            cprint("  " + Colors.BOLD + "[3]" + Colors.ENDC + " " + Colors.CYAN + 'Ataque de fuerza bruta con patron de Cedulas con el prefijo "CI" (ej: CI12345678 o ci12345678)' + Colors.ENDC)
-            cprint("  " + Colors.BOLD + "[4]" + Colors.ENDC + " " + Colors.CYAN + "Ataque de fuerza bruta con patron de Numeros Celulares de Venezuela (Formatos 0414, 0424, 0412, 0416)" + Colors.ENDC)
-            cprint("  " + Colors.BOLD + "[5]" + Colors.ENDC + " " + Colors.CYAN + "Ataque de fuerza bruta con diccionario" + Colors.ENDC)
-            cprint("  " + Colors.BOLD + "[6]" + Colors.ENDC + " " + Colors.CYAN + "Ataque con diccionario y Sufijo Numerico de 2 digitos mas caracter especial" + Colors.ENDC)
-            cprint("  " + Colors.BOLD + "[7]" + Colors.ENDC + " " + Colors.CYAN + "Seleccionar otro archivo" + Colors.ENDC)
-            cprint("  " + Colors.BOLD + "[8]" + Colors.ENDC + " " + Colors.CYAN + "Regresar al menu principal" + Colors.ENDC)
+            cprint("  " + Colors.BOLD + "[1]" + Colors.ENDC + " " + Colors.CYAN + "Fuerza Bruta: Patrón numérico de 8 dígitos" + Colors.ENDC)
+            cprint("  " + Colors.BOLD + "[2]" + Colors.ENDC + " " + Colors.CYAN + "Fuerza Bruta: Cédula venezolana (V + 8 dígitos)" + Colors.ENDC)
+            cprint("  " + Colors.BOLD + "[3]" + Colors.ENDC + " " + Colors.CYAN + "Fuerza Bruta: Cédula venezolana (CI + 8 dígitos)" + Colors.ENDC)
+            cprint("  " + Colors.BOLD + "[4]" + Colors.ENDC + " " + Colors.CYAN + "Fuerza Bruta: Prefijos telefónicos de Venezuela" + Colors.ENDC)
+            cprint("  " + Colors.BOLD + "[5]" + Colors.ENDC + " " + Colors.CYAN + "Ataque de Diccionario Estándar" + Colors.ENDC)
+            cprint("  " + Colors.BOLD + "[6]" + Colors.ENDC + " " + Colors.CYAN + "Ataque Híbrido: Diccionario + 2 dígitos + Carácter especial (ej: palabra26#)" + Colors.ENDC)
+            cprint("  " + Colors.BOLD + "[7]" + Colors.ENDC + " " + Colors.CYAN + "Ataque Híbrido: Diccionario + Sufijo de 4 dígitos (ej: palabra2026)" + Colors.ENDC)
+            cprint("  " + Colors.BOLD + "[8]" + Colors.ENDC + " " + Colors.CYAN + "Seleccionar otro archivo" + Colors.ENDC)
+            cprint("  " + Colors.BOLD + "[9]" + Colors.ENDC + " " + Colors.CYAN + "Regresar al menu principal" + Colors.ENDC)
 
             try:
-                sub_choice = input("\n" + Colors.WARNING + "[?] Selecciona una opcion (1-8): " + Colors.ENDC).strip()
+                sub_choice = input("\n" + Colors.WARNING + "[?] Selecciona una opcion (1-9): " + Colors.ENDC).strip()
             except (EOFError, KeyboardInterrupt):
-                cprint("\n  [!] Entrada no disponible. Volviendo al menu principal...", Colors.FAIL)
+                cprint("\n  [!] Entrada no disponible. Volviendo al menu...", Colors.FAIL)
                 return
 
             if sub_choice == '1':
@@ -2854,57 +3113,7 @@ def menu_descifrar_password():
 
             elif sub_choice == '5':
                 # ---- SELECCIONAR DICCIONARIO ----
-                diccionarios_dir = WORK_DIR / "diccionarios"
-                diccionario_files = []
-                if diccionarios_dir.exists():
-                    for ext in ["*.txt", "*.lst", "*.dic", "*.wordlist"]:
-                        diccionario_files.extend(list(diccionarios_dir.glob(ext)))
-                    for f in diccionarios_dir.iterdir():
-                        if f.is_file() and f.suffix == '' and f not in diccionario_files:
-                            diccionario_files.append(f)
-
-                if not diccionario_files:
-                    cprint("\n  [!] No se encontraron archivos de diccionario en: " + str(diccionarios_dir), Colors.FAIL)
-                    cprint("  [*] Buscando en otras ubicaciones...", Colors.WARNING)
-                    for f in WORK_DIR.glob("*.txt"):
-                        if f.is_file() and f.name != "passwords_encontradas.txt":
-                            diccionario_files.append(f)
-
-                if not diccionario_files:
-                    cprint("\n  [!] No se encontraron diccionarios disponibles.", Colors.FAIL)
-                    try:
-                        input("\n" + Colors.CYAN + "[*] Presiona Enter para continuar..." + Colors.ENDC)
-                    except (EOFError, KeyboardInterrupt):
-                        pass
-                    continue
-
-                cprint("\n" + Colors.BOLD + "Diccionarios disponibles:" + Colors.ENDC, Colors.CYAN)
-                for idx, f in enumerate(diccionario_files, 1):
-                    size_kb = f.stat().st_size / 1024
-                    cprint("  " + Colors.BOLD + "[" + str(idx) + "]" + Colors.ENDC + " " + f.name + " (" + "{:.1f}".format(size_kb) + " KB)", Colors.BLUE)
-
-                diccionario_path = None
-                while True:
-                    try:
-                        dic_choice = input("\n  " + Colors.WARNING + "[?] Selecciona un diccionario por numero (o 0 para cancelar): " + Colors.ENDC).strip()
-                        if dic_choice == '0':
-                            cprint("\n  [*] Operacion cancelada.", Colors.BLUE)
-                            break
-                        try:
-                            idx = int(dic_choice)
-                            if 1 <= idx <= len(diccionario_files):
-                                diccionario_path = str(diccionario_files[idx - 1])
-                                break
-                        except ValueError:
-                            pass
-                        cprint("  [!] Opcion invalida. Ingresa un numero del 1 al " + str(len(diccionario_files)) + " o 0 para cancelar.", Colors.FAIL)
-                    except (EOFError, KeyboardInterrupt):
-                        cprint("\n  [!] Entrada no disponible.", Colors.FAIL)
-                        diccionario_path = None
-                        break
-
-                if not diccionario_path:
-                    continue
+                diccionario_path = seleccionar_diccionario()
 
                 cprint("\n  [*] Diccionario seleccionado: " + Colors.BOLD + diccionario_path + Colors.ENDC, Colors.GREEN)
                 password = crack_password_diccionario(hc22000_path, essid, diccionario_path)
@@ -2925,11 +3134,11 @@ def menu_descifrar_password():
                                 os.unlink(hc22000_path)
                                 cprint("  [*] Archivo .hc22000 eliminado.", Colors.CYAN)
                             except OSError as e:
-                                cprint("  [!] Error al eliminar: " + str(e), Colors.FAIL)
+                                cprint("  [] Error al eliminar: " + str(e), Colors.FAIL)
                     except (EOFError, KeyboardInterrupt):
                         pass
                 else:
-                    cprint("\n  " + Colors.WARNING + "[!] No se pudo descifrar la contrasena para '" + essid + "'." + Colors.ENDC, Colors.WARNING)
+                    cprint("\n  " + Colors.WARNING + "[] No se pudo descifrar la contrasena para '" + essid + "'." + Colors.ENDC, Colors.WARNING)
                     cprint("  [*] El archivo .hc22000 se conserva para futuros intentos.", Colors.CYAN)
 
                 try:
@@ -2939,65 +3148,14 @@ def menu_descifrar_password():
                 if otra != 's':
                     cprint("\n  [*] Regresando al menu principal...", Colors.BLUE)
                     return
-
             elif sub_choice == '6':
                 # ---- SELECCIONAR DICCIONARIO (con regla) ----
-                diccionarios_dir = WORK_DIR / "diccionarios"
-                diccionario_files = []
-                if diccionarios_dir.exists():
-                    for ext in ["*.txt", "*.lst", "*.dic", "*.wordlist"]:
-                        diccionario_files.extend(list(diccionarios_dir.glob(ext)))
-                    for f in diccionarios_dir.iterdir():
-                        if f.is_file() and f.suffix == '' and f not in diccionario_files:
-                            diccionario_files.append(f)
-
-                if not diccionario_files:
-                    cprint("\n  [!] No se encontraron archivos de diccionario en: " + str(diccionarios_dir), Colors.FAIL)
-                    cprint("  [*] Buscando en otras ubicaciones...", Colors.WARNING)
-                    for f in WORK_DIR.glob("*.txt"):
-                        if f.is_file() and f.name != "passwords_encontradas.txt":
-                            diccionario_files.append(f)
-
-                if not diccionario_files:
-                    cprint("\n  [!] No se encontraron diccionarios disponibles.", Colors.FAIL)
-                    try:
-                        input("\n" + Colors.CYAN + "[*] Presiona Enter para continuar..." + Colors.ENDC)
-                    except (EOFError, KeyboardInterrupt):
-                        pass
-                    continue
-
-                cprint("\n" + Colors.BOLD + "Diccionarios disponibles:" + Colors.ENDC, Colors.CYAN)
-                for idx, f in enumerate(diccionario_files, 1):
-                    size_kb = f.stat().st_size / 1024
-                    cprint("  " + Colors.BOLD + "[" + str(idx) + "]" + Colors.ENDC + " " + f.name + " (" + "{:.1f}".format(size_kb) + " KB)", Colors.BLUE)
-
-                diccionario_path = None
-                while True:
-                    try:
-                        dic_choice = input("\n  " + Colors.WARNING + "[?] Selecciona un diccionario por numero (o 0 para cancelar): " + Colors.ENDC).strip()
-                        if dic_choice == '0':
-                            cprint("\n  [*] Operacion cancelada.", Colors.BLUE)
-                            break
-                        try:
-                            idx = int(dic_choice)
-                            if 1 <= idx <= len(diccionario_files):
-                                diccionario_path = str(diccionario_files[idx - 1])
-                                break
-                        except ValueError:
-                            pass
-                        cprint("  [!] Opcion invalida. Ingresa un numero del 1 al " + str(len(diccionario_files)) + " o 0 para cancelar.", Colors.FAIL)
-                    except (EOFError, KeyboardInterrupt):
-                        cprint("\n  [!] Entrada no disponible.", Colors.FAIL)
-                        diccionario_path = None
-                        break
-
-                if not diccionario_path:
-                    continue
+                diccionario_path = seleccionar_diccionario()
 
                 # Regla fija: solo_2num_sufijo.rule
                 rule_path = str(WORK_DIR / "rules" / "solo_2num_sufijo.rule")
                 if not os.path.exists(rule_path):
-                    cprint("\n  [!] Archivo de regla no encontrado: " + rule_path, Colors.FAIL)
+                    cprint("\n  [] Archivo de regla no encontrado: " + rule_path, Colors.FAIL)
                     try:
                         input("\n" + Colors.CYAN + "[*] Presiona Enter para continuar..." + Colors.ENDC)
                     except (EOFError, KeyboardInterrupt):
@@ -3041,15 +3199,55 @@ def menu_descifrar_password():
                     return
 
             elif sub_choice == '7':
+                # ---- ATAQUE HIBRIDO: Diccionario + Sufijo 4 digitos ----
+                diccionario_path = seleccionar_diccionario()
+                if not diccionario_path:
+                    continue
+
+                cprint("\n  [*] Diccionario seleccionado: " + Colors.BOLD + diccionario_path + Colors.ENDC, Colors.GREEN)
+                password = crack_password_hibrido_espanol(hc22000_path, essid, diccionario_path)
+                if password:
+                    try:
+                        with open(hc22000_path, 'r') as hf:
+                            first_line = hf.readline().strip()
+                        parts = first_line.split(':')
+                        bssid = parts[2] if len(parts) > 2 else "DESCONOCIDO"
+                    except:
+                        bssid = "DESCONOCIDO"
+                    save_password(essid, bssid, password)
+                    cprint("\n  [*] Contrasena encontrada: " + Colors.BOLD + password + Colors.ENDC, Colors.GREEN)
+                    try:
+                        eliminar = input("\n  " + Colors.WARNING + "[?] Eliminar el archivo .hc22000? (s/N): " + Colors.ENDC).strip().lower()
+                        if eliminar == 's':
+                            try:
+                                os.unlink(hc22000_path)
+                                cprint("  [*] Archivo .hc22000 eliminado.", Colors.CYAN)
+                            except OSError as e:
+                                cprint("  [] Error al eliminar: " + str(e), Colors.FAIL)
+                    except (EOFError, KeyboardInterrupt):
+                        pass
+                else:
+                    cprint("\n  " + Colors.WARNING + "[] No se pudo descifrar la contrasena para '" + essid + "'." + Colors.ENDC, Colors.WARNING)
+                    cprint("  [*] El archivo .hc22000 se conserva para futuros intentos.", Colors.CYAN)
+
+                try:
+                    otra = input("\n" + Colors.WARNING + "[?] Deseas realizar otra operacion? (s/N): " + Colors.ENDC).strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    otra = 'n'
+                if otra != 's':
+                    cprint("\n  [*] Regresando al menu principal...", Colors.BLUE)
+                    return
+
+            elif sub_choice == '8':
                 cprint("\n  [*] Volviendo a seleccion de archivo...", Colors.BLUE)
                 break  # Sale del submenu, vuelve al outer loop (seleccionar archivo)
 
-            elif sub_choice == '8':
+            elif sub_choice == '9':
                 cprint("\n  [*] Regresando al menu principal...", Colors.BLUE)
                 return
 
             else:
-                cprint("  [!] Opcion invalida. Debe ser 1, 2, 3, 4, 5, 6, 7 u 8.", Colors.FAIL)
+                cprint("  [!] Opcion invalida. Debe ser 1, 2, 3, 4, 5, 6, 7, 8 o 9.", Colors.FAIL)
                 continue
 
 
