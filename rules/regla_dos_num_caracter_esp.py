@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 import os
 
 def generar_reglas_especiales_hashcat(nombre_archivo="append_00_99_special.rule"):
