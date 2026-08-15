@@ -701,6 +701,91 @@ class AdvancedAlertManager:
             print("Acción ejecutada: Reducir potencia GPU")
 
 
+class PerformanceProfileController:
+    """Controlador de perfiles de rendimiento del sistema"""
+    
+    def __init__(self):
+        self.available = False
+        self.check_availability()
+    
+    def check_availability(self):
+        """Verifica si power-profiles-daemon está disponible"""
+        try:
+            result = subprocess.run(
+                ["powerprofilesctl", "list"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            self.available = result.returncode == 0
+            return self.available
+        except Exception as e:
+            print(f"power-profiles-daemon no disponible: {e}")
+            self.available = False
+            return False
+    
+    def get_current_profile(self):
+        """Obtiene el perfil de rendimiento actual"""
+        if not self.available:
+            return None
+        
+        try:
+            result = subprocess.run(
+                ["powerprofilesctl", "get"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except Exception as e:
+            print(f"Error obteniendo perfil actual: {e}")
+        
+        return None
+    
+    def set_profile(self, profile):
+        """Establece el perfil de rendimiento"""
+        if not self.available:
+            print("power-profiles-daemon no disponible")
+            return False
+        
+        valid_profiles = ["power-saver", "balanced", "performance"]
+        if profile not in valid_profiles:
+            print(f"Perfil inválido: {profile}. Opciones: {valid_profiles}")
+            return False
+        
+        try:
+            result = subprocess.run(
+                ["powerprofilesctl", "set", profile],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            if result.returncode == 0:
+                print(f"Perfil cambiado a: {profile}")
+                return True
+            else:
+                print(f"Error cambiando perfil: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            print(f"Error cambiando perfil: {e}")
+            return False
+    
+    def set_power_saver(self):
+        """Establece modo ahorro de energía"""
+        return self.set_profile("power-saver")
+    
+    def set_balanced(self):
+        """Establece modo balanceado"""
+        return self.set_profile("balanced")
+    
+    def set_performance(self):
+        """Establece modo alto rendimiento"""
+        return self.set_profile("performance")
+
+
 class TurboBoostController:
     """Controlador de Intel Turbo Boost"""
     
@@ -1586,6 +1671,7 @@ class MonitorTrayApp:
         self.alert_manager = AdvancedAlertManager(self.config_manager)
         self.data_exporter = AdvancedDataExporter(self.config_manager)
         self.turbo_controller = TurboBoostController()
+        self.performance_controller = PerformanceProfileController()
         self.signals = StatusSignals()
         
         # Datos actuales
@@ -1636,17 +1722,8 @@ class MonitorTrayApp:
         msg.setDetailedText("\n".join(warnings))
         msg.exec()
     
-    def create_tray(self):
-        """Crea el icono de systray"""
-        self.tray = QSystemTrayIcon()
-        
-        # Usar el icono de ventilador dinámico
-        icon, status = create_dynamic_fan_icon(0)
-        
-        self.tray.setIcon(icon)
-        self.tray.setToolTip("HP Omen Monitor")
-        
-        # Menú contextual
+    def create_tray_menu(self):
+        """Crea el menú contextual del icono de systray"""
         menu = QMenu()
         
         # Información de estado
@@ -1679,6 +1756,47 @@ class MonitorTrayApp:
             turbo_action = QAction("⚡ Turbo Boost: No disponible", self.app)
             turbo_action.setEnabled(False)
             menu.addAction(turbo_action)
+        
+        menu.addSeparator()
+        
+        # Perfiles de rendimiento del sistema
+        if self.performance_controller.available:
+            current_profile = self.performance_controller.get_current_profile()
+            profile_display = current_profile if current_profile else "No disponible"
+            
+            profile_menu = menu.addMenu("🎛️ Perfil de Rendimiento")
+            
+            # Modo Ahorro de Energía
+            power_saver_action = QAction("🔋 Ahorro de Energía", self.app)
+            power_saver_action.setCheckable(True)
+            power_saver_action.setChecked(current_profile == "power-saver")
+            power_saver_action.triggered.connect(lambda: self.set_performance_profile("power-saver"))
+            profile_menu.addAction(power_saver_action)
+            
+            # Modo Balanceado
+            balanced_action = QAction("⚖️ Balanceado", self.app)
+            balanced_action.setCheckable(True)
+            balanced_action.setChecked(current_profile == "balanced")
+            balanced_action.triggered.connect(lambda: self.set_performance_profile("balanced"))
+            profile_menu.addAction(balanced_action)
+            
+            # Modo Alto Rendimiento
+            performance_action = QAction("🚀 Alto Rendimiento", self.app)
+            performance_action.setCheckable(True)
+            performance_action.setChecked(current_profile == "performance")
+            performance_action.triggered.connect(lambda: self.set_performance_profile("performance"))
+            profile_menu.addAction(performance_action)
+            
+            # Separador y perfil actual
+            profile_menu.addSeparator()
+            current_profile_action = QAction(f"Actual: {profile_display}", self.app)
+            current_profile_action.setEnabled(False)
+            profile_menu.addAction(current_profile_action)
+        else:
+            # Si no está disponible, mostrar opción deshabilitada
+            profile_action = QAction("🎛️ Perfil de Rendimiento: No disponible", self.app)
+            profile_action.setEnabled(False)
+            menu.addAction(profile_action)
         
         menu.addSeparator()
         
@@ -1727,6 +1845,20 @@ class MonitorTrayApp:
         quit_action.triggered.connect(self.quit_app)
         menu.addAction(quit_action)
         
+        return menu
+    
+    def create_tray(self):
+        """Crea el icono de systray"""
+        self.tray = QSystemTrayIcon()
+        
+        # Usar el icono de ventilador dinámico
+        icon, status = create_dynamic_fan_icon(0)
+        
+        self.tray.setIcon(icon)
+        self.tray.setToolTip("HP Omen Monitor")
+        
+        # Crear y asignar menú contextual
+        menu = self.create_tray_menu()
         self.tray.setContextMenu(menu)
         
         # Tooltip al pasar el mouse
@@ -1859,6 +1991,39 @@ class MonitorTrayApp:
                     QSystemTrayIcon.MessageIcon.Information,
                     3000
                 )
+    
+    def set_performance_profile(self, profile):
+        """Establece el perfil de rendimiento del sistema"""
+        success = self.performance_controller.set_profile(profile)
+        
+        if success:
+            profile_names = {
+                "power-saver": "Ahorro de Energía",
+                "balanced": "Balanceado",
+                "performance": "Alto Rendimiento"
+            }
+            
+            self.tray.showMessage(
+                f"Perfil Cambiado",
+                f"Modo {profile_names.get(profile, profile)} activado",
+                QSystemTrayIcon.MessageIcon.Information,
+                3000
+            )
+            
+            # Actualizar el menú para reflejar el nuevo estado
+            self.update_performance_menu()
+        else:
+            self.tray.showMessage(
+                "Error",
+                "No se pudo cambiar el perfil de rendimiento",
+                QSystemTrayIcon.MessageIcon.Warning,
+                3000
+            )
+    
+    def update_performance_menu(self):
+        """Actualiza el menú de perfiles de rendimiento"""
+        # Recrear el menú para actualizar el estado de los checkboxes
+        self.tray.setContextMenu(self.create_tray_menu())
     
     def show_alert(self, alert):
         """Muestra alerta de temperatura"""
