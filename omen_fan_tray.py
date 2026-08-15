@@ -1518,21 +1518,21 @@ class ConfigDialog(QDialog):
 
 def create_dynamic_fan_icon(avg_temp=0):
     """Crea icono dinámico según temperatura"""
-    from PyQt6.QtGui import QPixmap, QPainter, QPen, QBrush
+    from PyQt6.QtGui import QPixmap, QPainter, QPen, QBrush, QColor
     from PyQt6.QtCore import Qt
     
     # Determinar color según temperatura
     if avg_temp < 50:
-        color = Qt.GlobalColor.green
+        color = QColor(0, 255, 0)  # Verde
         status = "Normal"
     elif avg_temp < 70:
-        color = Qt.GlobalColor.yellow
+        color = QColor(255, 255, 0)  # Amarillo
         status = "Cálido"
     elif avg_temp < 85:
-        color = Qt.GlobalColor.orange
+        color = QColor(255, 165, 0)  # Naranja
         status = "Caliente"
     else:
-        color = Qt.GlobalColor.red
+        color = QColor(255, 0, 0)  # Rojo
         status = "Crítico"
     
     pixmap = QPixmap(32, 32)
@@ -1541,7 +1541,7 @@ def create_dynamic_fan_icon(avg_temp=0):
     
     # Color según temperatura
     painter.setBrush(QBrush(color))
-    painter.setPen(QPen(Qt.GlobalColor.black, 1))
+    painter.setPen(QPen(QColor(0, 0, 0), 1))
     
     # Dibujar aspas del ventilador
     painter.save()
@@ -1554,7 +1554,7 @@ def create_dynamic_fan_icon(avg_temp=0):
     painter.restore()
     
     # Círculo central
-    painter.setBrush(QBrush(Qt.GlobalColor.darkGray))
+    painter.setBrush(QBrush(QColor(128, 128, 128)))
     painter.drawEllipse(12, 12, 8, 8)
     
     painter.end()
@@ -1920,25 +1920,10 @@ class MonitorTrayApp:
     
     def setup_autostart(self, enable):
         """Configura el inicio automático"""
-        autostart_dir = Path.home() / ".config" / "autostart"
-        autostart_file = autostart_dir / "omen-monitor-tray.desktop"
-        
-        if enable:
-            autostart_dir.mkdir(parents=True, exist_ok=True)
-            
-            desktop_content = f"""[Desktop Entry]
-Type=Application
-Name=HP Omen Monitor
-Comment=Monitoreo de sistema para HP Omen
-Exec=python3 {Path(__file__).absolute()}
-Icon=fan
-Terminal=false
-Categories=System;
-"""
-            autostart_file.write_text(desktop_content)
-        else:
-            if autostart_file.exists():
-                autostart_file.unlink()
+        # Ya no usamos autostart .desktop, usamos systemd user service
+        # Esta función se mantiene por compatibilidad pero no hace nada
+        print("Autostart configurado via systemd user service, ignorando .desktop")
+        pass
     
     def quit_app(self):
         """Sale de la aplicación"""
