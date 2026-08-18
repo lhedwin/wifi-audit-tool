@@ -811,65 +811,54 @@ class TurboBoostController:
             return None
     
     def set_turbo_boost(self, enable=True):
-        """Activa o desactiva Turbo Boost con timeout mejorado"""
+        """Activa o desactiva Turbo Boost"""
         if not self.is_available():
             print("Intel Turbo Boost no está disponible en este sistema")
             return False
-
+        
         try:
             # enable=True → no_turbo=0 (activar Turbo Boost)
             # enable=False → no_turbo=1 (desactivar Turbo Boost)
             value = 0 if enable else 1
-
-            # Intentar primero con sudo (más estable) con timeout mayor
+            
+            # Intentar usar pkexec para solicitud gráfica de contraseña
             try:
+                result = subprocess.run(
+                    ["pkexec", "sh", "-c", f"echo {value} | tee {self.no_turbo_path}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                
+                if result.returncode == 0:
+                    self.current_state = value
+                    state_str = "activado" if enable else "desactivado"
+                    print(f"Turbo Boost {state_str} correctamente (via pkexec)")
+                    return True
+                else:
+                    print(f"pkexec falló, intentando método alternativo: {result.stderr}")
+                    raise Exception("pkexec failed")
+                    
+            except Exception as pkexec_error:
+                # Fallback a sudo si pkexec no está disponible
+                print(f"pkexec no disponible: {pkexec_error}")
                 result = subprocess.run(
                     ["sudo", "tee", str(self.no_turbo_path)],
                     input=str(value),
                     capture_output=True,
                     text=True,
-                    timeout=30  # 30 segundos para dar tiempo de escribir contraseña
+                    timeout=5
                 )
-
+                
                 if result.returncode == 0:
                     self.current_state = value
                     state_str = "activado" if enable else "desactivado"
-                    print(f"Turbo Boost {state_str} correctamente (via sudo)")
+                    print(f"Turbo Boost {state_str} correctamente (requirió contraseña manual)")
                     return True
                 else:
-                    print(f"sudo falló, intentando método alternativo: {result.stderr}")
-                    raise Exception("sudo failed")
-
-            except subprocess.TimeoutExpired:
-                print("Timeout al cambiar Turbo Boost - se requirió contraseña y no se proporcionó a tiempo")
-                return False
-            except Exception as sudo_error:
-                # Fallback a pkexec si sudo falla
-                print(f"sudo no disponible: {sudo_error}")
-                try:
-                    result = subprocess.run(
-                        ["pkexec", "sh", "-c", f"echo {value} | tee {self.no_turbo_path}"],
-                        capture_output=True,
-                        text=True,
-                        timeout=15  # Timeout mayor para pkexec también
-                    )
-
-                    if result.returncode == 0:
-                        self.current_state = value
-                        state_str = "activado" if enable else "desactivado"
-                        print(f"Turbo Boost {state_str} correctamente (via pkexec)")
-                        return True
-                    else:
-                        print(f"Error cambiando Turbo Boost: {result.stderr}")
-                        return False
-
-                except subprocess.TimeoutExpired:
-                    print("Timeout con pkexec - diálogos de contraseña cerrados muy rápido")
+                    print(f"Error cambiando Turbo Boost: {result.stderr}")
                     return False
-                except Exception as pkexec_error:
-                    print(f"Error con pkexec: {pkexec_error}")
-                    return False
-
+                
         except Exception as e:
             print(f"Error cambiando Turbo Boost: {e}")
             return False
